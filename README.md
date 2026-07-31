@@ -12,6 +12,12 @@ Read-only: nothing is ever written to the mouse, so a
 untouched. It coexists with a running `logid`, telling its own replies apart by
 `software_id`.
 
+<img src="docs/images/in-panel.png" alt="The icon in the Plasma panel, magnified" width="126">
+
+*In the Plasma panel (magnified 6×).*
+
+![Every icon state](docs/images/icon-states.png)
+
 ## What it shows
 
 - A battery icon filled in proportion to the charge: green from 20% up, amber below
@@ -84,11 +90,15 @@ Prints every HID++ node found, the replies for indices 1–6, device names and t
 battery feature indices and the raw bytes of the charge reply. Start here if the icon
 says `no connection`.
 
-A contact sheet of every icon state:
+Regenerate the contact sheet at the top of this file:
 
 ```sh
-QT_QPA_PLATFORM=offscreen python3 tools/preview_icon.py /tmp/preview.png
+QT_QPA_PLATFORM=offscreen python3 tools/preview_icon.py
 ```
+
+It writes `docs/images/icon-states.png` straight from the rendering code, so the
+documentation cannot drift away from what the applet actually draws. Pass a path to
+write somewhere else.
 
 ## Tests
 
@@ -119,3 +129,7 @@ created only after the first poll has named the mouse, and swapping in a differe
 mouse needs `systemctl --user restart mousebat.service` for the new name to show.
 
 Design notes: [`docs/superpowers/specs/2026-07-31-mouse-battery-tray-design.md`](docs/superpowers/specs/2026-07-31-mouse-battery-tray-design.md)
+
+## License
+
+MIT — see [LICENSE](LICENSE).

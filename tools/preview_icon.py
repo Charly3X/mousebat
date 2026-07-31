@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Render a contact sheet of every icon state into a single PNG.
 
-Run:  QT_QPA_PLATFORM=offscreen python3 tools/preview_icon.py /tmp/preview.png
+This produces the image shown in README.md, straight from the rendering code, so the
+documentation cannot drift away from what the applet actually draws.
+
+Run:  QT_QPA_PLATFORM=offscreen python3 tools/preview_icon.py [output.png]
 """
 
 from __future__ import annotations
@@ -12,55 +15,91 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt6.QtCore import QRectF, Qt  # noqa: E402
-from PyQt6.QtGui import QColor, QImage, QPainter  # noqa: E402
+from PyQt6.QtGui import QColor, QFont, QImage, QPainter  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from mousebat import icon  # noqa: E402
 
-STATES = (
-    ("100%", 100, False, False),
-    ("73%", 73, False, False),
-    ("50%", 50, False, False),
-    ("19% warn", 19, False, False),
-    ("7% crit", 7, False, False),
-    ("charging", 45, True, False),
-    ("no link", None, False, True),
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_OUTPUT = os.path.join(PROJECT_ROOT, "docs", "images", "icon-states.png")
+
+LEVELS = (("100%", 100), ("73%", 73), ("50%", 50), ("19%", 19), ("7%", 7))
+ROWS = (
+    ("idle", False, (*LEVELS, ("no link", None))),
+    ("charging", True, LEVELS),
 )
 
-CELL = 96
-LABEL = 22
+CELL = 88
+LABEL = 20
+PAD = 12
+LEGEND = 84
 PANEL_BG = QColor("#2a2e32")  # Plasma panel background, dark theme
+#: Without a live palette the dimmed state would be invisible against the panel.
+OFFLINE_COLOR = QColor("#8a8f94")
 
 
 def main(out_path: str) -> int:
+    # Kept in a local: dropping the reference would collect the application and
+    # take the font database down with it.
     app = QApplication([])
-    app.setPalette(app.palette())
+    assert app is not None
 
-    sheet = QImage(CELL * len(STATES), CELL + LABEL, QImage.Format.Format_ARGB32)
+    columns = max(len(states) for _, _, states in ROWS)
+    width = LEGEND + columns * CELL + PAD
+    height = PAD + len(ROWS) * (CELL + LABEL) + PAD
+
+    sheet = QImage(width, height, QImage.Format.Format_ARGB32)
     sheet.fill(PANEL_BG)
+
+    legend_font = QFont()
+    legend_font.setPointSize(10)
+    legend_font.setBold(True)
+    label_font = QFont()
+    label_font.setPointSize(9)
 
     painter = QPainter(sheet)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    for column, (label, percent, charging, offline) in enumerate(STATES):
-        pixmap = icon.render_pixmap(
-            percent, charging=charging, offline=offline, size=CELL - 16,
-            # Only the unknown state needs an explicit colour: without a live
-            # palette it would come out invisible against the panel.
-            color=QColor("#8a8f94") if percent is None else None,
-        )
-        painter.drawPixmap(column * CELL + 8, 8, pixmap)
-        painter.setPen(QColor("#c8c8c8"))
-        painter.drawText(
-            QRectF(column * CELL, CELL, CELL, LABEL),
-            int(Qt.AlignmentFlag.AlignCenter),
-            label,
-        )
-    painter.end()
+    try:
+        for row, (row_label, charging, states) in enumerate(ROWS):
+            y = PAD + row * (CELL + LABEL)
 
-    sheet.save(out_path)
-    print(f"written: {out_path}")
+            painter.setFont(legend_font)
+            painter.setPen(QColor("#8a9099"))
+            painter.drawText(
+                QRectF(PAD, y, LEGEND - PAD, CELL),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                row_label,
+            )
+
+            for column, (label, percent) in enumerate(states):
+                x = LEGEND + column * CELL
+                offline = percent is None
+                pixmap = icon.render_pixmap(
+                    percent,
+                    charging=charging and not offline,
+                    offline=offline,
+                    size=CELL - 24,
+                    color=OFFLINE_COLOR if offline else None,
+                )
+                painter.drawPixmap(int(x + 12), int(y + 12), pixmap)
+
+                painter.setFont(label_font)
+                painter.setPen(QColor("#c3c8ce"))
+                painter.drawText(
+                    QRectF(x, y + CELL - 6, CELL, LABEL),
+                    int(Qt.AlignmentFlag.AlignCenter),
+                    label,
+                )
+    finally:
+        painter.end()
+
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    if not sheet.save(out_path):
+        print(f"could not write {out_path}", file=sys.stderr)
+        return 1
+    print(f"written: {out_path} ({sheet.width()}x{sheet.height()})")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1] if len(sys.argv) > 1 else "/tmp/mousebat-preview.png"))
+    raise SystemExit(main(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_OUTPUT))
