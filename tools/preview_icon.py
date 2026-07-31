@@ -15,7 +15,7 @@ from PyQt6.QtCore import QRectF, Qt  # noqa: E402
 from PyQt6.QtGui import QColor, QImage, QPainter  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
-from battary import icon  # noqa: E402
+from mousebat import icon  # noqa: E402
 
 STATES = (
     ("100%", 100, False, False),
@@ -61,4 +61,4 @@ def main(out_path: str) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1] if len(sys.argv) > 1 else "/tmp/battary-preview.png"))
+    raise SystemExit(main(sys.argv[1] if len(sys.argv) > 1 else "/tmp/mousebat-preview.png"))

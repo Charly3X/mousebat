@@ -5,9 +5,9 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 -m battary
-WorkingDirectory=%h/projects/battary
-Environment=PYTHONPATH=%h/projects/battary
+ExecStart=/usr/bin/python3 -m mousebat
+WorkingDirectory=%h/projects/mousebat
+Environment=PYTHONPATH=%h/projects/mousebat
 Restart=on-failure
 RestartSec=5
 

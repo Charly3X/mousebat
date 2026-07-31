@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from battary import battery, hidpp
+from mousebat import battery, hidpp
 
 from .test_hidpp import link_with, short
 

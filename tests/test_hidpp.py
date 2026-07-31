@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from battary import hidpp
+from mousebat import hidpp
 
 
 class FakeTransport:

@@ -1,4 +1,4 @@
-# battary — wireless mouse battery tray indicator
+# mousebat — wireless mouse battery tray indicator
 
 Date: 2026-07-31
 Status: design approved; implemented and verified on the target machine
@@ -113,7 +113,7 @@ Candidates are then pinged; whichever answers is the one to use.
 
 ### Device access
 
-`/etc/udev/rules.d/42-battary-hidraw.rules`:
+`/etc/udev/rules.d/42-mousebat-hidraw.rules`:
 
 ```
 ACTION=="add|change", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", TAG+="uaccess"
@@ -130,7 +130,7 @@ physically replugging the receiver.
 Installed once, by hand:
 
 ```
-sudo cp packaging/42-battary-hidraw.rules /etc/udev/rules.d/
+sudo cp packaging/42-mousebat-hidraw.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 sudo udevadm trigger --action=add --subsystem-match=hidraw
 ```
@@ -194,4 +194,4 @@ sufficient to coexist with `logid`.
 
 The modules then followed bottom-up: `hidpp` → `battery` → `discovery` → `icon` →
 `tray`, each with tests, finishing with a `systemd --user` unit bound to
-`graphical-session.target` and logs via `journalctl --user -u battary`.
+`graphical-session.target` and logs via `journalctl --user -u mousebat`.

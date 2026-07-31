@@ -105,7 +105,7 @@ class Tray(QObject):
 
         self._icon = QSystemTrayIcon()
         self._icon.setIcon(make_icon(None, offline=True))
-        self._icon.setToolTip("battary — polling…")
+        self._icon.setToolTip("mousebat — polling…")
 
         menu = QMenu()
         self._refresh_action = menu.addAction("Refresh")

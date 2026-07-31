@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from battary import discovery, hidpp
+from mousebat import discovery, hidpp
 
 from .test_hidpp import FakeTransport, link_with, short
 

@@ -9,7 +9,7 @@ pytest.importorskip("PyQt6.QtWidgets", reason="requires python3-pyqt6")
 from PyQt6.QtGui import QColor  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
-from battary import icon  # noqa: E402
+from mousebat import icon  # noqa: E402
 
 WHITE = QColor("#ffffff")
 

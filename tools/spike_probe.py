@@ -14,7 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from battary import battery, discovery, hidpp  # noqa: E402
+from mousebat import battery, discovery, hidpp  # noqa: E402
 
 
 def hexs(data: bytes) -> str:
@@ -91,7 +91,7 @@ def main() -> int:
             transport = hidpp.Transport(receiver.device_path)
         except OSError as exc:
             print(f"    cannot open: {exc}")
-            print("    -> the udev rule is needed, see packaging/42-battary-hidraw.rules")
+            print("    -> the udev rule is needed, see packaging/42-mousebat-hidraw.rules")
             failures += 1
             continue
         with transport:

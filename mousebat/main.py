@@ -1,4 +1,4 @@
-"""Entry point: python3 -m battary."""
+"""Entry point: python3 -m mousebat."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from .tray import Tray
 
 def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv if argv is not None else sys.argv)
-    app.setApplicationName("battary")
-    app.setApplicationDisplayName("battary")
+    app.setApplicationName("mousebat")
+    app.setApplicationDisplayName("mousebat")
     app.setQuitOnLastWindowClosed(False)  # there are no windows; the icon is all there is
 
     if not QSystemTrayIcon.isSystemTrayAvailable():

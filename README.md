@@ -1,9 +1,9 @@
-# battary
+# mousebat
 
 A tray indicator for Logitech wireless mouse battery level, for KDE Plasma.
 
 The kernel creates no `power_supply` entry for mice paired to a Logi Bolt receiver,
-so Plasma's stock "Battery and Brightness" widget cannot show them. `battary` reads
+so Plasma's stock "Battery and Brightness" widget cannot show them. `mousebat` reads
 the charge itself — over HID++ 2.0 through the receiver's `/dev/hidraw` node — and
 draws an icon in the tray.
 
@@ -30,23 +30,23 @@ No device is hard-coded: the first pointing device on any Logitech receiver is u
 ```sh
 sudo apt install python3-pyqt6
 
-sudo cp packaging/42-battary-hidraw.rules /etc/udev/rules.d/
+sudo cp packaging/42-mousebat-hidraw.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 sudo udevadm trigger --action=add --subsystem-match=hidraw
 
 mkdir -p ~/.config/systemd/user
-cp packaging/battary.service ~/.config/systemd/user/
+cp packaging/mousebat.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now battary.service
+systemctl --user enable --now mousebat.service
 ```
 
 The udev rule tags Logitech hidraw nodes with `uaccess`, granting access to the user
 of the active local session — no groups, no root daemon.
 
-The unit assumes the project lives in `~/projects/battary`; for any other location,
-adjust `WorkingDirectory` and `PYTHONPATH` in `packaging/battary.service`.
+The unit assumes the project lives in `~/projects/mousebat`; for any other location,
+adjust `WorkingDirectory` and `PYTHONPATH` in `packaging/mousebat.service`.
 
-Logs: `journalctl --user -u battary -f`
+Logs: `journalctl --user -u mousebat -f`
 
 ## Diagnostics
 
@@ -77,11 +77,11 @@ temporary directory. Icon tests are skipped when PyQt6 is not installed.
 
 | Module | Responsibility |
 |---|---|
-| `battary/hidpp.py` | HID++ packets, filtering foreign replies, both error schemes |
-| `battary/discovery.py` | finding HID++ nodes and the mice behind them |
-| `battary/battery.py` | charge via feature `0x1004`, falling back to `0x1000` |
-| `battary/icon.py` | icon rendering |
-| `battary/tray.py` | icon, menu, polling on a worker thread |
+| `mousebat/hidpp.py` | HID++ packets, filtering foreign replies, both error schemes |
+| `mousebat/discovery.py` | finding HID++ nodes and the mice behind them |
+| `mousebat/battery.py` | charge via feature `0x1004`, falling back to `0x1000` |
+| `mousebat/icon.py` | icon rendering |
+| `mousebat/tray.py` | icon, menu, polling on a worker thread |
 
 Polling lives on its own thread: with the link lost, walking receivers and indices
 takes seconds, which would freeze the interface on the main thread.
