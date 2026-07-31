@@ -16,7 +16,7 @@ machine:
 ```
 $ upower -e
 /org/freedesktop/UPower/devices/battery_hidpp_battery_0   <- MX Keys
-/org/freedesktop/UPower/devices/headset_dev_2C_4D_79_B6_DA_6F
+/org/freedesktop/UPower/devices/headset_dev_XX_XX_XX_XX_XX_XX
 /org/freedesktop/UPower/devices/DisplayDevice
 
 $ ls /sys/class/power_supply/
@@ -144,6 +144,7 @@ sudo udevadm trigger --action=add --subsystem-match=hidraw
 | `battery.py` | produce `BatteryReading(percent, status, name)`: resolve the feature index, read the charge, fall back to `0x1000` when `0x1004` is absent | `hidpp` |
 | `icon.py` | render a `QIcon` battery from percentage and status | PyQt6 |
 | `tray.py` | `QSystemTrayIcon`, poll timer, context menu, the lost-link state | everything above |
+| `autostart.py` | read and flip `systemctl --user enable/disable` for our unit, through an injectable runner | `subprocess` |
 | `main.py` | entry point: `QApplication`, start the tray | `tray` |
 
 Boundaries: `hidpp` knows nothing of batteries, `battery` nothing of Qt, `icon` nothing
@@ -157,7 +158,14 @@ of devices. Each module is testable without the others.
 - **Tooltip**: two lines — the device name and `73% — discharging`.
 - **Polling** every 5 minutes: the charge drifts slowly, and extra requests wake the
   mouse.
-- **Context menu**: Refresh (poll immediately), Quit.
+- **Context menu**: Refresh (poll immediately), Start at login (a checkbox), Quit.
+- **Autostart** has no setting of its own: the systemd unit's enablement *is* the
+  state, so the checkbox cannot drift out of sync with reality. It is re-read every
+  time the menu opens, and hidden when no unit is installed.
+- **Installation** is one script, `install.sh`: dependencies, udev rule, unit,
+  start, autostart. `--no-autostart` installs without enabling it, `--uninstall`
+  reverses everything. The unit ships as a template with a `@PROJECT_DIR@`
+  placeholder that the installer substitutes, so the checkout may live anywhere.
 - **Lost link** (mouse asleep, receiver unplugged, device silent): the icon dims and the
   tooltip reads `no connection`. Polling speeds up to once a minute so recovery is
   noticed sooner. No restart needed.

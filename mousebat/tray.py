@@ -12,6 +12,7 @@ from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from . import battery, discovery, hidpp
+from .autostart import Autostart
 from .icon import make_icon
 
 #: Charge drifts slowly, and every extra request wakes the mouse up.
@@ -98,10 +99,11 @@ class Tray(QObject):
 
     poll_requested = pyqtSignal()
 
-    def __init__(self, app: QApplication) -> None:
+    def __init__(self, app: QApplication, autostart: Autostart | None = None) -> None:
         super().__init__()
         self._app = app
         self._last_name: str | None = None
+        self._autostart = autostart if autostart is not None else Autostart()
 
         self._icon = QSystemTrayIcon()
         self._icon.setIcon(make_icon(None, offline=True))
@@ -110,6 +112,15 @@ class Tray(QObject):
         menu = QMenu()
         self._refresh_action = menu.addAction("Refresh")
         self._refresh_action.triggered.connect(self.poll_requested.emit)
+
+        self._autostart_action = menu.addAction("Start at login")
+        self._autostart_action.setCheckable(True)
+        self._autostart_action.toggled.connect(self._set_autostart)
+        # Autostart may have been changed from a terminal meanwhile, so the
+        # checkmark is refreshed every time the menu opens rather than once.
+        menu.aboutToShow.connect(self._sync_autostart_action)
+        self._sync_autostart_action()
+
         menu.addSeparator()
         menu.addAction("Quit").triggered.connect(app.quit)
         self._icon.setContextMenu(menu)
@@ -125,6 +136,31 @@ class Tray(QObject):
         self._timer = QTimer(self)
         self._timer.setInterval(POLL_INTERVAL_MS)
         self._timer.timeout.connect(self.poll_requested.emit)
+
+    def _sync_autostart_action(self) -> None:
+        """Mirror the unit's real state into the checkbox.
+
+        Hidden when no unit is installed — the applet was started by hand, and
+        there is nothing to enable.
+        """
+        available = self._autostart.available()
+        self._autostart_action.setVisible(available)
+        if not available:
+            return
+        enabled = self._autostart.enabled()
+        # Assigning setChecked would re-emit toggled and call systemctl again.
+        self._autostart_action.blockSignals(True)
+        self._autostart_action.setChecked(enabled)
+        self._autostart_action.blockSignals(False)
+
+    @pyqtSlot(bool)
+    def _set_autostart(self, value: bool) -> None:
+        reached = self._autostart.set_enabled(value)
+        if reached != value:
+            # systemctl refused; show what is actually true.
+            self._autostart_action.blockSignals(True)
+            self._autostart_action.setChecked(reached)
+            self._autostart_action.blockSignals(False)
 
     def start(self) -> None:
         self._thread.start()

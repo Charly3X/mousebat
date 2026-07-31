@@ -28,25 +28,38 @@ No device is hard-coded: the first pointing device on any Logitech receiver is u
 ## Install
 
 ```sh
-sudo apt install python3-pyqt6
-
-sudo cp packaging/42-mousebat-hidraw.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger --action=add --subsystem-match=hidraw
-
-mkdir -p ~/.config/systemd/user
-cp packaging/mousebat.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now mousebat.service
+./install.sh
 ```
+
+That is all: it installs `python3-pyqt6` if missing, the udev rule, the systemd user
+unit, then starts the applet and enables autostart. Only the udev rule needs `sudo`,
+and the script asks for it at that point — do not run the whole thing as root.
+
+```sh
+./install.sh --no-autostart   # install and run now, but do not start at login
+./install.sh --uninstall      # remove the unit and the udev rule
+./install.sh --help
+```
+
+The project may live anywhere: the installer substitutes its actual path into the unit.
 
 The udev rule tags Logitech hidraw nodes with `uaccess`, granting access to the user
 of the active local session — no groups, no root daemon.
 
-The unit assumes the project lives in `~/projects/mousebat`; for any other location,
-adjust `WorkingDirectory` and `PYTHONPATH` in `packaging/mousebat.service`.
-
 Logs: `journalctl --user -u mousebat -f`
+
+## Autostart
+
+Toggle it from the tray menu: **Start at login**. The checkmark reflects the systemd
+unit itself, so it stays truthful even if you change things from a terminal:
+
+```sh
+systemctl --user enable mousebat.service
+systemctl --user disable mousebat.service
+```
+
+The menu entry is hidden when no unit is installed — for instance when the applet was
+started by hand with `python3 -m mousebat`.
 
 ## Diagnostics
 
@@ -82,6 +95,7 @@ temporary directory. Icon tests are skipped when PyQt6 is not installed.
 | `mousebat/battery.py` | charge via feature `0x1004`, falling back to `0x1000` |
 | `mousebat/icon.py` | icon rendering |
 | `mousebat/tray.py` | icon, menu, polling on a worker thread |
+| `mousebat/autostart.py` | reads and flips the unit's enablement |
 
 Polling lives on its own thread: with the link lost, walking receivers and indices
 takes seconds, which would freeze the interface on the main thread.

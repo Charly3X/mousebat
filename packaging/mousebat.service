@@ -6,8 +6,8 @@ After=graphical-session.target
 [Service]
 Type=simple
 ExecStart=/usr/bin/python3 -m mousebat
-WorkingDirectory=%h/projects/mousebat
-Environment=PYTHONPATH=%h/projects/mousebat
+WorkingDirectory=@PROJECT_DIR@
+Environment=PYTHONPATH=@PROJECT_DIR@
 Restart=on-failure
 RestartSec=5
 
