@@ -8,7 +8,7 @@ from .test_hidpp import link_with, short
 
 
 def feature_reply(index: int) -> bytes:
-    """Ответ root.getFeature с индексом фичи."""
+    """A root.getFeature reply carrying the feature index."""
     return short(1, 0x00, 0x0, index, 0x00, 0x00)
 
 
@@ -51,7 +51,7 @@ class TestUnifiedBattery:
         assert reading.status is battery.ChargeStatus.FULL
 
     def test_falls_back_to_discrete_level_without_percent(self) -> None:
-        """Некоторые устройства процент не отдают — используем уровень."""
+        """Some devices report no percentage — fall back to the discrete level."""
         link, _ = link_with(
             feature_reply(0x06),
             short(1, 0x06, 0x1, 0, battery.LEVEL_LOW, 0x00),
@@ -76,8 +76,8 @@ class TestUnifiedBattery:
 class TestLegacyFallback:
     def test_uses_0x1000_when_0x1004_is_absent(self) -> None:
         link, _ = link_with(
-            UNSUPPORTED,  # нет 0x1004
-            feature_reply(0x05),  # есть 0x1000
+            UNSUPPORTED,  # 0x1004 missing
+            feature_reply(0x05),  # 0x1000 present
             short(1, 0x05, 0x0, 50, 20, 0x00),
         )
         reading = battery.read_battery(link, 1)
@@ -117,7 +117,7 @@ class TestBatteryReader:
         reader = battery.BatteryReader(link, 1)
         assert reader.read().percent == 73
         assert reader.read().percent == 72
-        # три запроса, а не четыре: getFeature выполнен единожды
+        # three requests rather than four: getFeature ran once
         assert len(transport.written) == 3
 
     def test_forget_makes_next_read_resolve_feature_again(self) -> None:

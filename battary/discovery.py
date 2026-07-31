@@ -1,8 +1,8 @@
-"""Поиск Logitech-ресиверов и подключённых к ним мышей.
+"""Locating Logitech receivers and the mice paired with them.
 
-Ресивер отдаёт HID++ не на всех своих hidraw-узлах, а только на том интерфейсе,
-чей report descriptor объявляет отчёты 0x10/0x11. Остальные узлы — обычные
-mouse/keyboard-интерфейсы, на запросы они не отвечают.
+A receiver speaks HID++ on only one of its hidraw nodes — the interface whose
+report descriptor declares reports 0x10/0x11. The remaining nodes are plain
+mouse/keyboard interfaces and never answer requests.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ _HID_ID = re.compile(r"^([0-9a-fA-F]{4}):([0-9a-fA-F]{8}):([0-9a-fA-F]{8})$")
 
 @dataclass(frozen=True)
 class ReceiverNode:
-    """hidraw-узел, на котором ресивер принимает HID++."""
+    """A hidraw node on which a receiver accepts HID++."""
 
     device_path: str
     product_id: int
@@ -39,7 +39,7 @@ class ReceiverNode:
 
 @dataclass(frozen=True)
 class MouseDevice:
-    """Мышь, найденная за ресивером."""
+    """A mouse found behind a receiver."""
 
     device_path: str
     device_index: int
@@ -56,7 +56,7 @@ def parse_hid_id(hid_id: str) -> tuple[int, int] | None:
 
 
 def speaks_hidpp(report_descriptor: bytes) -> bool:
-    """Объявляет ли интерфейс long-отчёт 0x11 — признак HID++-канала."""
+    """Whether the interface declares long report 0x11 — the mark of a HID++ channel."""
     return b"\x85\x11" in report_descriptor
 
 
@@ -79,7 +79,7 @@ def _hidraw_sort_key(name: str) -> tuple[int, str]:
 
 
 def find_receivers(sys_hidraw: str = SYS_HIDRAW, dev_root: str = "/dev") -> list[ReceiverNode]:
-    """Все hidraw-узлы Logitech, готовые говорить на HID++."""
+    """Every Logitech hidraw node ready to speak HID++."""
     try:
         names = sorted(os.listdir(sys_hidraw), key=_hidraw_sort_key)
     except OSError:
@@ -108,7 +108,7 @@ def device_type(link: hidpp.Link, device_index: int, name_feature: int) -> int:
 
 
 def device_name(link: hidpp.Link, device_index: int, name_feature: int) -> str:
-    """Собрать имя из 16-байтовых чанков."""
+    """Assemble the name from its 16-byte chunks."""
     count = link.request(device_index, name_feature, FUNC_NAME_GET_COUNT)
     length = count[0] if count else 0
     chunks: list[bytes] = []
@@ -126,7 +126,7 @@ def device_name(link: hidpp.Link, device_index: int, name_feature: int) -> str:
 
 
 def probe_mice(link: hidpp.Link, device_path: str) -> list[MouseDevice]:
-    """Пройти индексы 1..6 и вернуть те, что оказались указывающими устройствами."""
+    """Walk indices 1..6 and return those that turned out to be pointing devices."""
     mice: list[MouseDevice] = []
     for index in DEVICE_INDICES:
         try:
@@ -146,7 +146,7 @@ def probe_mice(link: hidpp.Link, device_path: str) -> list[MouseDevice]:
             MouseDevice(
                 device_path=device_path,
                 device_index=index,
-                name=name or "Мышь",
+                name=name or "Mouse",
                 protocol=protocol,
             )
         )
@@ -156,7 +156,7 @@ def probe_mice(link: hidpp.Link, device_path: str) -> list[MouseDevice]:
 def find_first_mouse(
     sys_hidraw: str = SYS_HIDRAW, dev_root: str = "/dev", *, timeout: float = 0.5
 ) -> MouseDevice | None:
-    """Первая мышь в порядке обхода: ресиверы по номеру hidraw, внутри — по индексу."""
+    """The first mouse in walk order: receivers by hidraw number, then by device index."""
     for receiver in find_receivers(sys_hidraw, dev_root):
         try:
             with hidpp.Transport(receiver.device_path) as transport:

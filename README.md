@@ -1,29 +1,31 @@
 # battary
 
-Трей-индикатор заряда беспроводной мыши Logitech для KDE Plasma.
+A tray indicator for Logitech wireless mouse battery level, for KDE Plasma.
 
-Ядро не создаёт `power_supply` для мышей на ресивере Logi Bolt, поэтому штатный
-виджет «Батарея и яркость» их не показывает. `battary` читает заряд сам — по HID++ 2.0
-через `/dev/hidraw` ресивера — и рисует иконку в трее.
+The kernel creates no `power_supply` entry for mice paired to a Logi Bolt receiver,
+so Plasma's stock "Battery and Brightness" widget cannot show them. `battary` reads
+the charge itself — over HID++ 2.0 through the receiver's `/dev/hidraw` node — and
+draws an icon in the tray.
 
-Только чтение: никаких настроек в мышь не записывается, поэтому конфигурация
-[logiops](https://github.com/PixlOne/logiops) (`/etc/logid.cfg`) остаётся нетронутой.
-С работающим `logid` соседствует корректно — свои ответы отличаются по `software_id`.
+Read-only: nothing is ever written to the mouse, so a
+[logiops](https://github.com/PixlOne/logiops) configuration (`/etc/logid.cfg`) stays
+untouched. It coexists with a running `logid`, telling its own replies apart by
+`software_id`.
 
-## Что показывает
+## What it shows
 
-- Иконка батарейки с заливкой по уровню заряда; жёлтая ниже 20%, красная ниже 10%.
-- При зарядке — молния поверх заливки.
-- Тултип: имя устройства и `73% — разряжается`.
-- Потеря связи (мышь уснула, ресивер выдернут) — иконка блёкнет, тултип «нет связи».
-  Возврат подхватывается сам.
-- Меню правой кнопкой: «Обновить», «Выход».
+- A battery icon filled in proportion to the charge; amber below 20%, red below 10%.
+- A lightning bolt cut out of the fill while charging.
+- Tooltip: the device name and `73% — discharging`.
+- Lost link (mouse asleep, receiver unplugged): the icon dims and the tooltip reads
+  `no connection`. Recovery is picked up automatically.
+- Right-click menu: Refresh, Quit.
 
-Опрос раз в 5 минут; при потерянной связи — раз в минуту.
+Polling runs every 5 minutes, or every minute while the link is down.
 
-Мышь не зашита в код: ищется первое указывающее устройство на любом Logitech-ресивере.
+No device is hard-coded: the first pointing device on any Logitech receiver is used.
 
-## Установка
+## Install
 
 ```sh
 sudo apt install python3-pyqt6
@@ -38,50 +40,50 @@ systemctl --user daemon-reload
 systemctl --user enable --now battary.service
 ```
 
-udev-правило помечает hidraw-узлы Logitech тегом `uaccess` — доступ получает
-пользователь активной локальной сессии, без групп и без root-демона.
+The udev rule tags Logitech hidraw nodes with `uaccess`, granting access to the user
+of the active local session — no groups, no root daemon.
 
-Юнит рассчитан на расположение проекта в `~/projects/battary`; при другом пути
-поправь `WorkingDirectory` и `PYTHONPATH` в `packaging/battary.service`.
+The unit assumes the project lives in `~/projects/battary`; for any other location,
+adjust `WorkingDirectory` and `PYTHONPATH` in `packaging/battary.service`.
 
-Логи: `journalctl --user -u battary -f`
+Logs: `journalctl --user -u battary -f`
 
-## Диагностика
+## Diagnostics
 
 ```sh
 python3 tools/spike_probe.py
 ```
 
-Печатает все найденные HID++-узлы, ответы по индексам 1–6, имена и типы устройств,
-индексы батарейных фич и сырые байты ответа о заряде. Первое, что стоит запустить,
-если иконка показывает «нет связи».
+Prints every HID++ node found, the replies for indices 1–6, device names and types,
+battery feature indices and the raw bytes of the charge reply. Start here if the icon
+says `no connection`.
 
-Контрольный лист состояний иконки:
+A contact sheet of every icon state:
 
 ```sh
 QT_QPA_PLATFORM=offscreen python3 tools/preview_icon.py /tmp/preview.png
 ```
 
-## Тесты
+## Tests
 
 ```sh
 python3 -m pytest
 ```
 
-Железо не требуется: транспорт подменяется записанными байтами, `/sys` — временным
-каталогом. Тесты иконки пропускаются, если не установлен PyQt6.
+No hardware required: the transport is replaced by recorded bytes and `/sys` by a
+temporary directory. Icon tests are skipped when PyQt6 is not installed.
 
-## Устройство
+## Layout
 
-| Модуль | Задача |
+| Module | Responsibility |
 |---|---|
-| `battary/hidpp.py` | пакеты HID++, фильтрация чужих ответов, обе схемы ошибок |
-| `battary/discovery.py` | поиск HID++-узлов и мышей за ними |
-| `battary/battery.py` | заряд через фичу `0x1004`, fallback на `0x1000` |
-| `battary/icon.py` | отрисовка иконки |
-| `battary/tray.py` | иконка, меню, опрос в рабочем потоке |
+| `battary/hidpp.py` | HID++ packets, filtering foreign replies, both error schemes |
+| `battary/discovery.py` | finding HID++ nodes and the mice behind them |
+| `battary/battery.py` | charge via feature `0x1004`, falling back to `0x1000` |
+| `battary/icon.py` | icon rendering |
+| `battary/tray.py` | icon, menu, polling on a worker thread |
 
-Опрос вынесен в отдельный поток: при потерянной связи перебор ресиверов и индексов
-занимает секунды, и в главном потоке это подвесило бы интерфейс.
+Polling lives on its own thread: with the link lost, walking receivers and indices
+takes seconds, which would freeze the interface on the main thread.
 
-Дизайн: [`docs/superpowers/specs/2026-07-31-mouse-battery-tray-design.md`](docs/superpowers/specs/2026-07-31-mouse-battery-tray-design.md)
+Design notes: [`docs/superpowers/specs/2026-07-31-mouse-battery-tray-design.md`](docs/superpowers/specs/2026-07-31-mouse-battery-tray-design.md)

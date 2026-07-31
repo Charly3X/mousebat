@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Собрать контрольный лист состояний иконки в один PNG.
+"""Render a contact sheet of every icon state into a single PNG.
 
-Запуск:  QT_QPA_PLATFORM=offscreen python3 tools/preview_icon.py /tmp/preview.png
+Run:  QT_QPA_PLATFORM=offscreen python3 tools/preview_icon.py /tmp/preview.png
 """
 
 from __future__ import annotations
@@ -23,13 +23,13 @@ STATES = (
     ("50%", 50, False, False),
     ("19% warn", 19, False, False),
     ("7% crit", 7, False, False),
-    ("зарядка", 45, True, False),
-    ("нет связи", None, False, True),
+    ("charging", 45, True, False),
+    ("no link", None, False, True),
 )
 
 CELL = 96
 LABEL = 22
-PANEL_BG = QColor("#2a2e32")  # фон панели Plasma, тёмная тема
+PANEL_BG = QColor("#2a2e32")  # Plasma panel background, dark theme
 
 
 def main(out_path: str) -> int:
@@ -56,7 +56,7 @@ def main(out_path: str) -> int:
     painter.end()
 
     sheet.save(out_path)
-    print(f"записано: {out_path}")
+    print(f"written: {out_path}")
     return 0
 
 

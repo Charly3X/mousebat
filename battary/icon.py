@@ -1,6 +1,6 @@
-"""Отрисовка иконки батарейки.
+"""Drawing the battery icon.
 
-Ничего не знает про устройства и опрос: на входе процент и статус, на выходе QIcon.
+Knows nothing about devices or polling: percentage and status in, QIcon out.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPalette, QPixmap, QPolygonF
 from PyQt6.QtWidgets import QApplication
 
-#: Пороги смены цвета: строго ниже этих значений.
+#: Colour thresholds: strictly below these values.
 WARN_BELOW = 20
 CRITICAL_BELOW = 10
 
@@ -17,12 +17,12 @@ COLOR_WARN = QColor("#e8b010")
 COLOR_CRITICAL = QColor("#e04a3f")
 COLOR_FALLBACK = QColor("#dcdcdc")
 
-#: Размеры, которые кладём в QIcon — панель выберет подходящий.
+#: Sizes baked into the QIcon — the panel picks whichever fits.
 ICON_SIZES = (22, 32, 44, 64)
 
 
 def theme_color() -> QColor:
-    """Обычный цвет темы для иконки; без QApplication — светло-серый."""
+    """The theme's regular colour for the icon; light grey without a QApplication."""
     app = QApplication.instance()
     if app is None:
         return QColor(COLOR_FALLBACK)
@@ -30,7 +30,7 @@ def theme_color() -> QColor:
 
 
 def color_for(percent: int | None) -> QColor:
-    """Жёлтый ниже 20%, красный ниже 10%, иначе цвет темы."""
+    """Amber below 20%, red below 10%, otherwise the theme colour."""
     if percent is None:
         return theme_color()
     if percent < CRITICAL_BELOW:
@@ -41,7 +41,7 @@ def color_for(percent: int | None) -> QColor:
 
 
 def _bolt(rect: QRectF) -> QPolygonF:
-    """Молния, вписанная в прямоугольник заливки."""
+    """A lightning bolt fitted into the fill rectangle."""
     left, top = rect.left(), rect.top()
     width, height = rect.width(), rect.height()
     points = (
@@ -63,7 +63,7 @@ def render_pixmap(
     size: int = 64,
     color: QColor | None = None,
 ) -> QPixmap:
-    """Горизонтальная батарейка: контур, носик справа, заливка по проценту."""
+    """A horizontal battery: outline, nub on the right, fill proportional to charge."""
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
 
@@ -71,7 +71,7 @@ def render_pixmap(
     if offline:
         stroke.setAlphaF(0.45)
 
-    unit = size / 22.0  # рисуем в пропорциях панельных 22×22
+    unit = size / 22.0  # proportions are authored for a 22x22 panel icon
     pen_width = max(1.0, round(1.6 * unit))
 
     body = QRectF(
@@ -114,7 +114,7 @@ def render_pixmap(
             painter.drawRect(fill)
 
             if charging:
-                # Молния вырезается из заливки: видна как «дырка» цвета фона.
+                # The bolt is cut out of the fill, showing through as a hole.
                 painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
                 painter.drawPolygon(_bolt(body.adjusted(0, -unit, 0, unit)))
                 painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
@@ -126,7 +126,7 @@ def render_pixmap(
 def make_icon(
     percent: int | None, *, charging: bool = False, offline: bool = False
 ) -> QIcon:
-    """QIcon со всеми панельными размерами."""
+    """A QIcon carrying every panel size."""
     icon = QIcon()
     for size in ICON_SIZES:
         icon.addPixmap(

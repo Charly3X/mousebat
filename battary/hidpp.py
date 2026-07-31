@@ -1,9 +1,9 @@
-"""Транспорт HID++ 2.0 поверх /dev/hidraw.
+"""HID++ 2.0 transport over /dev/hidraw.
 
-Модуль знает только про пакеты и их доставку: ничего про батареи, мыши и Qt.
-Все запросы помечаются нашим software_id, чтобы отличать свои ответы от чужих —
-на том же hidraw параллельно работает logid, и ядро рассылает входящие отчёты
-всем открытым дескрипторам сразу.
+This module only knows about packets and their delivery: nothing about batteries,
+mice or Qt. Every request carries our software_id so we can tell our own replies
+apart from foreign ones — logid works on the same hidraw node, and the kernel
+broadcasts incoming reports to every open descriptor at once.
 """
 
 from __future__ import annotations
@@ -15,11 +15,11 @@ from dataclasses import dataclass
 
 SHORT_REPORT_ID = 0x10
 LONG_REPORT_ID = 0x11
-ERROR_REPORT_ID = 0xFF  # так приходят ошибки HID++ 2.0
+ERROR_REPORT_ID = 0xFF  # HID++ 2.0 errors arrive under this report id
 SHORT_LEN = 7
 LONG_LEN = 20
 
-#: Наш software_id (4 бита, допустимо 1..15). Отделяет наши ответы от logid'овских.
+#: Our software_id (4 bits, 1..15 allowed). Separates our replies from logid's.
 SOFTWARE_ID = 0x0E
 
 RECEIVER_INDEX = 0xFF
@@ -37,7 +37,7 @@ PING_MARKER = 0xAA
 
 SUBID_ERROR_HIDPP10 = 0x8F
 
-#: Коды HID++ 1.0, означающие «устройства на этом индексе нет или связи с ним нет».
+#: HID++ 1.0 codes meaning "no device on this index, or no link to it".
 HIDPP10_ABSENT_CODES = frozenset({0x08, 0x09})
 
 HIDPP20_ERRORS = {
@@ -70,7 +70,7 @@ HIDPP10_ERRORS = {
 
 
 class HidppError(Exception):
-    """Устройство ответило кодом ошибки."""
+    """The device answered with an error code."""
 
     def __init__(self, code: int, *, protocol: int, message: str) -> None:
         super().__init__(f"HID++ {protocol}.0 error 0x{code:02X}: {message}")
@@ -79,11 +79,11 @@ class HidppError(Exception):
 
 
 class HidppTimeout(Exception):
-    """Ответ с нашим software_id не пришёл за отведённое время."""
+    """No reply carrying our software_id arrived in time."""
 
 
 class DeviceNotConnected(Exception):
-    """По этому device_index устройства нет или оно спит."""
+    """Nothing is paired on this device_index, or the device is asleep."""
 
 
 @dataclass(frozen=True)
@@ -104,11 +104,11 @@ class Response:
 
 
 def parse(raw: bytes) -> Response | None:
-    """Разобрать сырой отчёт. None — если это не похоже на HID++-пакет.
+    """Decode a raw report. None if it does not look like a HID++ packet.
 
-    Раскладка одинакова для всех трёх видов отчётов, включая ошибочный 0xFF:
-    у ошибки в feature_index/address лежат поля исходного запроса, а params[0] —
-    код ошибки.
+    The layout is the same for all three report kinds, including the 0xFF error
+    report: an error carries the originating request's fields in feature_index
+    and address, with params[0] holding the error code.
     """
     if len(raw) < 4 or raw[0] not in (SHORT_REPORT_ID, LONG_REPORT_ID, ERROR_REPORT_ID):
         return None
@@ -122,7 +122,7 @@ def parse(raw: bytes) -> Response | None:
 
 
 def build(device_index: int, feature_index: int, function: int, params: bytes = b"") -> bytes:
-    """Собрать short- или long-запрос. Длина выбирается по размеру параметров."""
+    """Assemble a short or long request; the length follows the parameter size."""
     if len(params) > LONG_LEN - 4:
         raise ValueError(f"too many params: {len(params)}")
     report_id = SHORT_REPORT_ID if len(params) <= SHORT_LEN - 4 else LONG_REPORT_ID
@@ -133,7 +133,7 @@ def build(device_index: int, feature_index: int, function: int, params: bytes = 
 
 
 class Transport:
-    """Открытый /dev/hidraw. Обёртка ровно вокруг read/write с таймаутом."""
+    """An open /dev/hidraw node: a thin wrapper around read/write with a timeout."""
 
     def __init__(self, path: str) -> None:
         self.path = path
@@ -143,7 +143,7 @@ class Transport:
         os.write(self._fd, data)
 
     def read(self, timeout: float) -> bytes | None:
-        """Прочитать один отчёт или вернуть None по истечении timeout."""
+        """Read one report, or return None once timeout expires."""
         if timeout <= 0:
             return None
         ready, _, _ = select.select([self._fd], [], [], timeout)
@@ -164,10 +164,11 @@ class Transport:
 
 
 class Link:
-    """Диалог HID++ через один hidraw.
+    """A HID++ conversation over one hidraw node.
 
-    Отбрасывает всё, что пришло не на наш запрос: чужой software_id (logid),
-    другой device_index, другая фича. Так два клиента живут на одном узле.
+    Anything that does not answer our request is dropped: a foreign software_id
+    (logid), another device_index, another feature. That is what lets two clients
+    share a single node.
     """
 
     def __init__(self, transport: Transport, *, timeout: float = 0.5) -> None:
@@ -183,7 +184,7 @@ class Link:
         *,
         timeout: float | None = None,
     ) -> bytes:
-        """Послать запрос и вернуть параметры ответа."""
+        """Send a request and return the reply parameters."""
         budget = self.timeout if timeout is None else timeout
         self.transport.write(build(device_index, feature_index, function, params))
         return self._await_reply(device_index, feature_index, function, budget)
@@ -219,9 +220,9 @@ class Link:
 
     @staticmethod
     def _as_error(reply: Response, feature_index: int, expected_address: int) -> Exception | None:
-        """Распознать ответ-ошибку обоих протоколов; иначе None."""
+        """Recognise an error reply of either protocol; None otherwise."""
         if reply.report_id == ERROR_REPORT_ID:
-            # 0xFF, index, исходная фича, исходный address, код
+            # 0xFF, index, original feature, original address, code
             if reply.feature_index != feature_index or reply.address != expected_address:
                 return None
             if not reply.params:
@@ -230,7 +231,7 @@ class Link:
             return HidppError(code, protocol=2, message=HIDPP20_ERRORS.get(code, "unknown"))
 
         if reply.feature_index == SUBID_ERROR_HIDPP10:
-            # 0x10, index, 0x8F, исходный sub_id, исходный address, код
+            # 0x10, index, 0x8F, original sub id, original address, code
             if len(reply.params) < 2:
                 return None
             if reply.address != feature_index or reply.params[0] != expected_address:
@@ -245,7 +246,7 @@ class Link:
         return None
 
     def ping(self, device_index: int, *, attempts: int = 3) -> tuple[int, int]:
-        """Вернуть версию протокола (major, minor). Спящая мышь может не ответить сразу."""
+        """Return the protocol version (major, minor). A sleeping mouse may miss the first try."""
         last: Exception | None = None
         for _ in range(attempts):
             try:
@@ -264,7 +265,7 @@ class Link:
         raise last if last is not None else HidppTimeout("ping failed")
 
     def feature_index(self, device_index: int, feature_id: int) -> int | None:
-        """Индекс фичи или None, если устройство её не поддерживает."""
+        """The feature's index, or None when the device does not support it."""
         params = self.request(
             device_index,
             ROOT_FEATURE_INDEX,

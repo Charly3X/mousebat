@@ -1,185 +1,197 @@
-# battary — трей-индикатор заряда беспроводной мыши
+# battary — wireless mouse battery tray indicator
 
-Дата: 2026-07-31
-Статус: дизайн утверждён
+Date: 2026-07-31
+Status: design approved; implemented and verified on the target machine
 
-## Задача
+## Problem
 
-Показывать в системном трее KDE Plasma заряд подключённой беспроводной мыши Logitech.
+Show the battery level of the connected Logitech wireless mouse in the KDE Plasma
+system tray.
 
-Штатный виджет Plasma «Батарея и яркость» этого не делает, потому что данных нет:
-ядро создаёт `power_supply` только для MX Keys (подключена через Unifying-ресивер),
-а для MX Master 3S на Logi Bolt — нет. Проверено на целевой машине:
+Plasma's stock "Battery and Brightness" widget cannot do this because the data does
+not exist: the kernel creates a `power_supply` entry only for the MX Keys (paired to
+a Unifying receiver), not for the MX Master 3S on Logi Bolt. Verified on the target
+machine:
 
 ```
 $ upower -e
-/org/freedesktop/UPower/devices/battery_hidpp_battery_0   ← MX Keys
+/org/freedesktop/UPower/devices/battery_hidpp_battery_0   <- MX Keys
 /org/freedesktop/UPower/devices/headset_dev_2C_4D_79_B6_DA_6F
 /org/freedesktop/UPower/devices/DisplayDevice
 
 $ ls /sys/class/power_supply/
-hidpp_battery_0                                           ← MX Keys
+hidpp_battery_0                                           <- MX Keys
 ```
 
-Поэтому основная работа — достать процент заряда по HID++ напрямую. Иконка — надстройка.
+So the substance of the work is obtaining the charge over HID++ directly. The icon is
+a layer on top.
 
-## Целевое окружение
+## Target environment
 
-- Debian 13 (trixie), ядро 6.12
+- Debian 13 (trixie), kernel 6.12
 - KDE Plasma 6, Wayland
-- Мышь: Logitech MX Master 3S через Logi Bolt (`046d:c548`)
-- Клавиатура: Logitech MX Keys через Unifying (`046d:c52b`) — вне области задачи
-- Активен `logid` (logiops) с настройками мыши в `/etc/logid.cfg`
-- Python 3, PyQt6 из репозитория Debian (`python3-pyqt6`)
+- Mouse: Logitech MX Master 3S via Logi Bolt (`046d:c548`)
+- Keyboard: Logitech MX Keys via Unifying (`046d:c52b`) — out of scope
+- `logid` (logiops) running, with mouse settings in `/etc/logid.cfg`
+- Python 3, PyQt6 from the Debian archive (`python3-pyqt6`)
 
-## Ограничения
+## Constraints
 
-1. **Solaar не используется.** Он при старте применяет к устройству свои настройки
-   (smartshift, hi-res scroll, DPI), а ровно это уже задано в `logid.cfg` — они бы
-   затирали друг друга.
-2. **Ничего не записываем в мышь.** Только чтение HID++. Настройки `logid` неприкосновенны.
-3. **Работа без root** в обычной сессии. Единственное действие с `sudo` — однократная
-   установка udev-правила.
+1. **Solaar is not used.** On startup it applies its own settings to the device
+   (smartshift, hi-res scroll, DPI) — exactly what `logid.cfg` already governs, so the
+   two would overwrite each other.
+2. **Nothing is written to the mouse.** HID++ reads only; the `logid` configuration is
+   untouchable.
+3. **No root at runtime.** The single `sudo` action is a one-off udev rule install.
 
-## Как читаем заряд
+## Reading the charge
 
-### Транспорт
+### Transport
 
-Обращаемся к `/dev/hidraw` **ресивера**, а не самой мыши: paired-устройства адресуются
-полем `device_index` в пакете.
+Requests go to the **receiver's** `/dev/hidraw` node rather than the mouse's own:
+paired devices are addressed by the `device_index` field inside the packet.
 
-Short-report, 7 байт:
+Short report, 7 bytes:
 
-| байт | значение |
+| byte | meaning |
 |---|---|
-| 0 | `0x10` (report ID) |
-| 1 | `device_index`: `1..6` — paired-устройство, `0xFF` — сам ресивер |
+| 0 | `0x10` (report id) |
+| 1 | `device_index`: `1..6` for a paired device, `0xFF` for the receiver itself |
 | 2 | `feature_index` |
 | 3 | `(function << 4) \| software_id` |
-| 4–6 | параметры |
+| 4–6 | parameters |
 
-Long-report — то же, но report ID `0x11` и 20 байт (параметры в байтах 4–19).
-Ответ может прийти как short, так и long.
+A long report is the same with report id `0x11` and 20 bytes (parameters in bytes
+4–19). A reply may arrive as either form.
 
-Ошибки: HID++ 2.0 — `0x11, idx, 0xFF, feature_index, function|sw, error_code`;
-HID++ 1.0 — `0x10, idx, 0x8F, ...`. Оба распознаём и превращаем в исключение.
+Errors: HID++ 2.0 uses report id `0xFF` —
+`0xFF, index, feature_index, function|sw, error_code`; HID++ 1.0 uses
+`0x10, index, 0x8F, sub_id, function|sw, error_code`. Both are recognised and turned
+into exceptions.
 
-### Соседство с logid
+### Coexisting with logid
 
-`logid` держит тот же hidraw открытым. Ядро рассылает входящие HID-отчёты **всем**
-открытым дескрипторам, поэтому взаимного «съедания» ответов нет — но мы получаем и
-чужие ответы тоже.
+`logid` holds the same hidraw node open. The kernel broadcasts incoming HID reports to
+**every** open descriptor, so neither side steals the other's replies — but we do
+receive foreign replies as well.
 
-Решение: у нас свой `software_id` — фиксируем значение `0x0E` (4 бита, допустимо `1..15`), —
-и мы отбрасываем всё, что пришло не с нашим `software_id` или не с ожидаемым
-`device_index`/`feature_index`. Это обязательное условие корректной работы рядом с `logid`.
-Спайк заодно подтвердит, что `logid` использует другое значение; если совпадёт — берём
-любое свободное.
+The remedy: our own `software_id` — fixed at `0x0E` (4 bits, `1..15` allowed) — and we
+discard anything whose `software_id`, `device_index` or `feature_index` does not match
+the request in flight. This is a precondition for working alongside `logid`.
 
-### Последовательность запросов
+### Request sequence
 
-1. **Ping** — root feature `0x0000`, function `0x1`, третий параметр `0xAA` как эхо-маркер.
-   Ответ содержит версию протокола и эхо. Так определяем, какие `device_index` живые.
-2. **`getFeature`** — root feature `0x0000`, function `0x0`, параметры = ID искомой фичи.
-   Ответ `params[0]` = индекс фичи; `0` означает «не поддерживается».
-3. **Тип устройства** — фича `0x0005` (DEVICE_NAME), function `0x2` (`getDeviceType`).
-   `params[0]`: `0` клавиатура, `3` мышь, `5` трекбол, `7` ресивер. Берём `3` и `5`.
-4. **Имя** — фича `0x0005`, function `0x1` (`getDeviceName`) с офсетом, склеиваем ASCII-чанки
-   по 16 байт до длины из function `0x0` (`getDeviceNameCount`).
-5. **Заряд** — фича `0x1004` (UNIFIED_BATTERY), function `0x1` (`getStatus`):
-   - `params[0]` — процент заряда (0–100)
-   - `params[2]` — статус зарядки: `0` разряжается, `1` заряжается, `2` медленная зарядка,
-     `3` заряд завершён, `4` ошибка
+1. **Ping** — root feature `0x0000`, function `0x1`, third parameter `0xAA` as an echo
+   marker. The reply carries the protocol version and the echo. This is how live
+   `device_index` values are identified.
+2. **`getFeature`** — root feature `0x0000`, function `0x0`, parameters = the wanted
+   feature id. Reply `params[0]` is the feature index; `0` means unsupported.
+3. **Device type** — feature `0x0005` (DEVICE_NAME), function `0x2` (`getDeviceType`).
+   `params[0]`: `0` keyboard, `3` mouse, `5` trackball, `7` receiver. We accept `3` and `5`.
+4. **Name** — feature `0x0005`, function `0x1` (`getDeviceName`) at an offset, joining
+   16-byte ASCII chunks up to the length from function `0x0` (`getDeviceNameCount`).
+5. **Charge** — feature `0x1004` (UNIFIED_BATTERY), function `0x1` (`getStatus`):
+   - `params[0]` — state of charge (0–100)
+   - `params[2]` — charging status: `0` discharging, `1` charging, `2` slow charging,
+     `3` complete, `4` error
 
-   Если фичи `0x1004` нет — fallback на `0x1000` (BATTERY_STATUS), function `0x0`:
-   `params[0]` — дискретный уровень в процентах, `params[2]` — статус.
+   When `0x1004` is absent, fall back to `0x1000` (BATTERY_STATUS), function `0x0`:
+   `params[0]` — discrete level as a percentage, `params[2]` — status.
 
-Таймаут одного запроса — 500 мс. При поиске устройств — до 3 попыток ping на индекс
-(спящая мышь может не ответить с первого раза).
+One request times out after 500 ms. Discovery pings each index up to 3 times, since a
+sleeping mouse may miss the first one.
 
-### Поиск hidraw-узлов ресиверов
+### Finding the receivers' hidraw nodes
 
-Перебираем `/sys/class/hidraw/hidraw*`:
+Walk `/sys/class/hidraw/hidraw*`:
 
-- `device/uevent` → `HID_ID` начинается с `0003:0000046D` (vendor Logitech);
-- `device/report_descriptor` содержит объявление report ID `0x11` (байты `85 11`) —
-  признак HID++-интерфейса, а не обычного mouse/keyboard-интерфейса ресивера.
+- `device/uevent` → `HID_ID` starting with `0003:0000046D` (Logitech vendor);
+- `device/report_descriptor` declaring report id `0x11` (bytes `85 11`) — the mark of a
+  HID++ interface as opposed to the receiver's plain mouse/keyboard interfaces.
 
-Кандидатов пробуем ping'ом; какой ответит — тот и рабочий.
+Candidates are then pinged; whichever answers is the one to use.
 
-### Доступ к устройству
+### Device access
 
-Файл `/etc/udev/rules.d/42-battary-hidraw.rules`:
+`/etc/udev/rules.d/42-battary-hidraw.rules`:
 
 ```
-ACTION=="add", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", TAG+="uaccess"
+ACTION=="add|change", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", TAG+="uaccess"
 ```
 
-`ATTRS{}` в udev сопоставляется и с родительскими устройствами, поэтому USB-vendor
-ресивера здесь виден. `TAG+="uaccess"` отдаёт доступ пользователю активной локальной
-сессии через systemd-logind — без групп и без root-демона.
+`ATTRS{}` matches parent devices too, so the receiver's USB vendor id is visible from
+the hidraw node. `TAG+="uaccess"` hands access to the user of the active local session
+via systemd-logind — no groups, no root daemon.
 
-Устанавливается однократно вручную:
+Both `add` and `change` are matched: with `add` alone the rule does not apply to
+already-connected devices on `udevadm trigger`, and access would only appear after
+physically replugging the receiver.
+
+Installed once, by hand:
 
 ```
 sudo cp packaging/42-battary-hidraw.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
+sudo udevadm control --reload-rules
+sudo udevadm trigger --action=add --subsystem-match=hidraw
 ```
 
-## Компоненты
+## Components
 
-| Модуль | Задача | Зависит от |
+| Module | Responsibility | Depends on |
 |---|---|---|
-| `hidpp.py` | транспорт: открыть hidraw, послать запрос, дождаться ответа с нашим `software_id`, таймаут, разбор ошибок. Про батареи не знает ничего | `os` |
-| `discovery.py` | найти hidraw-узлы ресиверов, пропинговать индексы `1..6`, отобрать устройства с типом «мышь»/«трекбол» | `hidpp` |
-| `battery.py` | вернуть `BatteryReading(percent, status, name)`: найти индекс фичи, прочитать заряд, при отсутствии `0x1004` уйти на `0x1000` | `hidpp` |
-| `icon.py` | нарисовать `QIcon` батарейки по проценту и статусу | PyQt6 |
-| `tray.py` | `QSystemTrayIcon`, таймер опроса, контекстное меню, состояние «нет связи» | всё выше |
-| `main.py` | точка входа: `QApplication`, запуск трея | `tray` |
+| `hidpp.py` | transport: open hidraw, send a request, await a reply bearing our `software_id`, timeout, error decoding. Knows nothing about batteries | `os` |
+| `discovery.py` | find receivers' hidraw nodes, ping indices `1..6`, keep devices typed as mouse/trackball | `hidpp` |
+| `battery.py` | produce `BatteryReading(percent, status, name)`: resolve the feature index, read the charge, fall back to `0x1000` when `0x1004` is absent | `hidpp` |
+| `icon.py` | render a `QIcon` battery from percentage and status | PyQt6 |
+| `tray.py` | `QSystemTrayIcon`, poll timer, context menu, the lost-link state | everything above |
+| `main.py` | entry point: `QApplication`, start the tray | `tray` |
 
-Границы: `hidpp` не знает о батареях, `battery` не знает о Qt, `icon` не знает об
-устройствах. Каждый модуль проверяется без остальных.
+Boundaries: `hidpp` knows nothing of batteries, `battery` nothing of Qt, `icon` nothing
+of devices. Each module is testable without the others.
 
-## Поведение
+## Behaviour
 
-- **Иконка** 22×22: контур батарейки с заливкой пропорционально заряду.
-  Цвет обычный цвет темы; **жёлтый ниже 20%**, **красный ниже 10%**.
-  При статусе «заряжается» — молния поверх заливки.
-- **Тултип**: две строки — имя устройства и `73% — разряжается`.
-- **Опрос** раз в 5 минут: заряд меняется медленно, а лишние запросы будят мышь.
-- **Контекстное меню**: «Обновить» (немедленный опрос), «Выход».
-- **Потеря связи** (мышь уснула, ресивер выдернут, устройство не отвечает):
-  иконка блёкнет, тултип «нет связи». Опрос учащается до раза в минуту, чтобы быстрее
-  подхватить возврат. Перезапуск не нужен.
-- **Несколько мышей**: берём первую в порядке обхода (ресиверы по номеру hidraw, внутри —
-  по `device_index`). Устройство не зашито в код: сменишь мышь — подхватит само.
-- **Уведомлений о низком заряде нет** — решение принято осознанно.
+- **Icon** 22×22: a battery outline filled in proportion to the charge. The theme's
+  regular colour, turning **amber below 20%** and **red below 10%**. While charging, a
+  lightning bolt sits over the fill.
+- **Tooltip**: two lines — the device name and `73% — discharging`.
+- **Polling** every 5 minutes: the charge drifts slowly, and extra requests wake the
+  mouse.
+- **Context menu**: Refresh (poll immediately), Quit.
+- **Lost link** (mouse asleep, receiver unplugged, device silent): the icon dims and the
+  tooltip reads `no connection`. Polling speeds up to once a minute so recovery is
+  noticed sooner. No restart needed.
+- **Multiple mice**: the first in walk order (receivers by hidraw number, then by
+  `device_index`). No device is hard-coded: swapping mice needs no code change.
+- **No low-battery notifications** — a deliberate decision.
 
-Кэшируем имя устройства и индексы фич на время жизни соединения; сбрасываем кэш при
-потере связи.
+The device name and feature indices are cached for the lifetime of the link and dropped
+when the link is lost.
 
-## Тестирование
+## Testing
 
-- `hidpp`, `battery`, `discovery` — на подставном транспорте: файловый объект, отдающий
-  записанные с реального устройства байты. Проверяем сборку пакетов, фильтрацию по
-  `software_id` (в том числе отбрасывание чужого ответа), таймаут, разбор ошибок обоих
-  протоколов, fallback `0x1004` → `0x1000`. Железо не требуется.
-- `discovery` — на фейковом дереве `/sys` во временном каталоге.
-- `icon` — рендер в `QImage` и проверка пикселей: доля заливки соответствует проценту,
-  цвет меняется на пороговых значениях, молния появляется только при зарядке.
-- `tray` — проверяем переходы состояний (есть связь / нет связи) на подставном источнике
-  данных, без реального опроса.
+- `hidpp`, `battery`, `discovery` — against a fake transport: a file-like object serving
+  bytes recorded from real hardware. Covered: packet assembly, `software_id` filtering
+  (including discarding a foreign reply), timeouts, error decoding for both protocols,
+  the `0x1004` → `0x1000` fallback. No hardware required.
+- `discovery` — against a fake `/sys` tree in a temporary directory.
+- `icon` — render into a `QImage` and inspect pixels: the fill ratio tracks the
+  percentage, the colour changes at the thresholds, the bolt appears only while charging.
+- `tray` — state transitions (online / offline) against a stubbed data source, with no
+  real polling.
 
-## Порядок работ
+## Order of work
 
-Первым шагом — спайк, снимающий главный риск: ответит ли мышь по HID++ рядом с
-работающим `logid`. Минимальный скрипт: установить udev-правило, пропинговать индексы
-`1..6` на обоих ресиверах, напечатать сырые ответы, прочитать `0x1004`.
+The first step was a spike retiring the main risk: whether the mouse answers HID++
+alongside a running `logid`. A minimal script installed the udev rule, pinged indices
+`1..6` on both receivers, printed the raw replies and read `0x1004`.
 
-Пока спайк не подтвердит чтение процента, к иконке не переходим. Если чтение через
-ресивер окажется недоступным, дизайн пересматриваем — альтернатива (например, опрос
-hidraw самой мыши или временная остановка `logid` на время запроса) выбирается по факту.
+Outcome: it does. The MX Master 3S answered on `/dev/hidraw2`, index 2, HID++ 4.5, with
+`0x1004` at feature index 8 and raw parameters `05 01 00` — 5%, critical level,
+discharging. The MX Keys answered through `0x1000` with 50%, matching what UPower
+reports, which confirms the byte-level interpretation. Filtering by `software_id` proved
+sufficient to coexist with `logid`.
 
-Дальше — модули снизу вверх: `hidpp` → `battery` → `discovery` → `icon` → `tray`,
-каждый с тестами. В конце — юнит `systemd --user`, привязанный к
-`graphical-session.target`, логи через `journalctl --user -u battary`.
+The modules then followed bottom-up: `hidpp` → `battery` → `discovery` → `icon` →
+`tray`, each with tests, finishing with a `systemd --user` unit bound to
+`graphical-session.target` and logs via `journalctl --user -u battary`.

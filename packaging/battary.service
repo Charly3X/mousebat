@@ -1,5 +1,5 @@
 [Unit]
-Description=Трей-индикатор заряда беспроводной мыши
+Description=Wireless mouse battery tray indicator
 PartOf=graphical-session.target
 After=graphical-session.target
 

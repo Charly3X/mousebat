@@ -43,7 +43,7 @@ class TestFindReceivers:
         root = str(tmp_path)
         make_hidraw(root, "hidraw0", "0003:0000046D:0000C548", PLAIN_DESCRIPTOR)
         make_hidraw(root, "hidraw2", "0003:0000046D:0000C548", HIDPP_DESCRIPTOR)
-        make_hidraw(root, "hidraw3", "0003:00001532:00000067", HIDPP_DESCRIPTOR)  # не Logitech
+        make_hidraw(root, "hidraw3", "0003:00001532:00000067", HIDPP_DESCRIPTOR)  # not Logitech
 
         found = discovery.find_receivers(root, dev_root="/dev")
         assert [node.device_path for node in found] == ["/dev/hidraw2"]
@@ -98,7 +98,7 @@ class TestDeviceName:
     def test_assembles_name_from_chunks(self) -> None:
         link, _ = link_with(
             name_count_reply(1, 18),
-            name_chunk_reply(1, b"MX Master 3S Mou"),  # ровно 16 байт — полный чанк
+            name_chunk_reply(1, b"MX Master 3S Mou"),  # exactly 16 bytes — a full chunk
             name_chunk_reply(1, b"se"),
         )
         assert discovery.device_name(link, 1, 0x02) == "MX Master 3S Mouse"
@@ -114,17 +114,17 @@ class TestDeviceName:
 class TestProbeMice:
     def test_returns_pointer_devices_only(self) -> None:
         link, _ = link_with(
-            # index 1 — клавиатура, пропускаем
+            # index 1 — a keyboard, skipped
             pong(1),
             name_feature_reply(1),
             type_reply(1, 0x00),
-            # index 2 — мышь
+            # index 2 — the mouse
             pong(2),
             name_feature_reply(2),
             type_reply(2, discovery.DEVICE_TYPE_MOUSE),
             name_count_reply(2, 12),
             name_chunk_reply(2, b"MX Master 3S"),
-            # index 3..6 — молчат
+            # indices 3..6 stay silent
             None,
             None,
             None,
@@ -149,7 +149,7 @@ class TestProbeMice:
             name_count_reply(1, 9),
             name_chunk_reply(1, b"Trackball"),
         ]
-        replies += [None] * 18  # индексы 2..6 молчат, по 3 попытки ping
+        replies += [None] * 18  # indices 2..6 stay silent, three ping attempts each
         link, _ = link_with(*replies)
         mice = discovery.probe_mice(link, "/dev/hidraw2")
         assert [mouse.device_index for mouse in mice] == [1]

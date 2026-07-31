@@ -1,4 +1,4 @@
-"""Транспорт проверяем на подставном hidraw — железо не требуется."""
+"""The transport is exercised against a fake hidraw node — no hardware needed."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from battary import hidpp
 
 
 class FakeTransport:
-    """Отдаёт заранее подготовленные отчёты и запоминает записанное."""
+    """Serves prepared reports and records everything written."""
 
     def __init__(self, replies: list[bytes | None] | None = None) -> None:
         self.written: list[bytes] = []
@@ -40,7 +40,7 @@ def short(device_index: int, feature: int, function: int, *params: int, sw: int 
 
 
 def link_with(*replies: bytes | None) -> tuple[hidpp.Link, FakeTransport]:
-    """`None` в списке ответов означает «на этот раз ничего не пришло»."""
+    """`None` among the replies means "nothing arrived this time"."""
     transport = FakeTransport(list(replies))
     return hidpp.Link(transport, timeout=0.05), transport
 
@@ -86,10 +86,10 @@ class TestRequest:
         assert link.request(1, 0x06, 0x1)[:3] == bytes((0x55, 0x0F, 0x00))
 
     def test_skips_reply_with_foreign_software_id(self) -> None:
-        """Ответ logid должен быть отброшен, а наш — принят."""
+        """A reply from logid must be dropped and ours accepted."""
         link, _ = link_with(
-            short(1, 0x06, 0x1, 0xDE, sw=0x02),  # чужой
-            short(1, 0x06, 0x1, 0x42),  # наш
+            short(1, 0x06, 0x1, 0xDE, sw=0x02),  # foreign
+            short(1, 0x06, 0x1, 0x42),  # ours
         )
         assert link.request(1, 0x06, 0x1)[0] == 0x42
 
@@ -135,7 +135,7 @@ class TestRequest:
 
     def test_error_for_another_request_is_ignored(self) -> None:
         link, _ = link_with(
-            bytes((0xFF, 0x01, 0x09, 0x10 | hidpp.SOFTWARE_ID, 0x07, 0x00)),  # чужая фича
+            bytes((0xFF, 0x01, 0x09, 0x10 | hidpp.SOFTWARE_ID, 0x07, 0x00)),  # a different feature
             short(1, 0x06, 0x1, 0x42),
         )
         assert link.request(1, 0x06, 0x1)[0] == 0x42
@@ -149,7 +149,7 @@ class TestPing:
 
     def test_retries_until_device_wakes_up(self) -> None:
         link, transport = link_with(
-            None,  # первая попытка: спящая мышь молчит
+            None,  # first attempt: a sleeping mouse stays silent
             short(1, 0x00, 0x1, 0x04, 0x02, hidpp.PING_MARKER),
         )
         assert link.ping(1, attempts=3) == (4, 2)

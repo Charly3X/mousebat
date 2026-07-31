@@ -1,4 +1,4 @@
-"""Точка входа: python3 -m battary."""
+"""Entry point: python3 -m battary."""
 
 from __future__ import annotations
 
@@ -15,17 +15,17 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName("battary")
     app.setApplicationDisplayName("battary")
-    app.setQuitOnLastWindowClosed(False)  # окон нет, живём только иконкой
+    app.setQuitOnLastWindowClosed(False)  # there are no windows; the icon is all there is
 
     if not QSystemTrayIcon.isSystemTrayAvailable():
-        print("Системный трей недоступен.", file=sys.stderr)
+        print("System tray is not available.", file=sys.stderr)
         return 1
 
     tray = Tray(app)
     tray.start()
 
-    # Ctrl+C доходит до Qt только когда интерпретатор получает управление,
-    # поэтому держим таймер, который регулярно возвращает его в Python.
+    # Ctrl+C only reaches Qt when the interpreter regains control, so keep a timer
+    # that hands it back regularly.
     signal.signal(signal.SIGINT, lambda *_: app.quit())
     heartbeat = QTimer()
     heartbeat.timeout.connect(lambda: None)

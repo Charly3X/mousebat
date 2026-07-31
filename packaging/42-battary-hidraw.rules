@@ -1,12 +1,12 @@
-# Доступ к HID++ Logitech-устройствам для пользователя активной локальной сессии.
-# ATTRS{} сопоставляется и с родительскими устройствами, поэтому USB-vendor
-# ресивера здесь виден с hidraw-узла.
+# Grants access to Logitech HID++ devices to the user of the active local session.
+# ATTRS{} also matches parent devices, which is why the receiver's USB vendor id
+# is visible from the hidraw node.
 #
-# Реагируем и на add, и на change: без change правило не применяется к уже
-# подключённым устройствам при `udevadm trigger`, и доступ появился бы только
-# после физического перевтыкания ресивера.
+# Both add and change are matched: without change the rule would not apply to
+# already-connected devices on `udevadm trigger`, and access would only appear
+# after physically replugging the receiver.
 #
-# Установка:
+# Install:
 #   sudo cp packaging/42-battary-hidraw.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload-rules
 #   sudo udevadm trigger --action=add --subsystem-match=hidraw

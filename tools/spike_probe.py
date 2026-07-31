@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Диагностика: что реально отвечает по HID++ на этой машине.
+"""Diagnostics: what actually answers HID++ on this machine.
 
-Печатает найденные hidraw-узлы ресиверов, результат ping по индексам 1..6,
-тип и имя устройства, индексы батарейных фич и сырые байты ответа о заряде.
+Prints the hidraw nodes found, the ping result for indices 1..6, each device's
+type and name, the battery feature indices and the raw bytes of the charge reply.
 
-Запуск из корня проекта:  python3 tools/spike_probe.py
+Run from the project root:  python3 tools/spike_probe.py
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ def hexs(data: bytes) -> str:
 def probe_index(link: hidpp.Link, index: int) -> None:
     try:
         major, minor = link.ping(index)
-    except Exception as exc:  # noqa: BLE001 — диагностика, печатаем любую причину
+    except Exception as exc:  # noqa: BLE001 — diagnostics: report any cause
         print(f"    index {index}: ping — {type(exc).__name__}: {exc}")
         return
 
@@ -33,17 +33,17 @@ def probe_index(link: hidpp.Link, index: int) -> None:
     try:
         name_feature = link.feature_index(index, hidpp.FEATURE_DEVICE_NAME)
         if name_feature is None:
-            print("      0x0005 DEVICE_NAME не поддерживается")
+            print("      0x0005 DEVICE_NAME unsupported")
         else:
             kind = discovery.device_type(link, index, name_feature)
             name = discovery.device_name(link, index, name_feature)
             is_pointer = kind in discovery.POINTER_TYPES
             print(
-                f"      имя: {name!r}, тип: 0x{kind:02X}"
-                f" ({'указывающее устройство' if is_pointer else 'другое'})"
+                f"      name: {name!r}, type: 0x{kind:02X}"
+                f" ({'pointing device' if is_pointer else 'other'})"
             )
     except Exception as exc:  # noqa: BLE001
-        print(f"      имя/тип — {type(exc).__name__}: {exc}")
+        print(f"      name/type — {type(exc).__name__}: {exc}")
 
     for feature_id, label in (
         (hidpp.FEATURE_UNIFIED_BATTERY, "0x1004 UNIFIED_BATTERY"),
@@ -52,12 +52,12 @@ def probe_index(link: hidpp.Link, index: int) -> None:
         try:
             found = link.feature_index(index, feature_id)
         except Exception as exc:  # noqa: BLE001
-            print(f"      {label}: запрос индекса — {type(exc).__name__}: {exc}")
+            print(f"      {label}: index lookup — {type(exc).__name__}: {exc}")
             continue
         if found is None:
-            print(f"      {label}: не поддерживается")
+            print(f"      {label}: unsupported")
             continue
-        print(f"      {label}: индекс {found}")
+        print(f"      {label}: index {found}")
         function = (
             battery.FUNC_UNIFIED_GET_STATUS
             if feature_id == hidpp.FEATURE_UNIFIED_BATTERY
@@ -65,33 +65,33 @@ def probe_index(link: hidpp.Link, index: int) -> None:
         )
         try:
             params = link.request(index, found, function)
-            print(f"        сырые параметры: {hexs(params)}")
+            print(f"        raw params: {hexs(params)}")
         except Exception as exc:  # noqa: BLE001
-            print(f"        чтение — {type(exc).__name__}: {exc}")
+            print(f"        read — {type(exc).__name__}: {exc}")
 
     try:
         reading = battery.read_battery(link, index)
-        print(f"      ИТОГ: {reading.percent}% — {reading.status.value} (через {reading.source})")
+        print(f"      RESULT: {reading.percent}% — {reading.status.value} (via {reading.source})")
     except Exception as exc:  # noqa: BLE001
-        print(f"      ИТОГ: не прочитано — {type(exc).__name__}: {exc}")
+        print(f"      RESULT: unreadable — {type(exc).__name__}: {exc}")
 
 
 def main() -> int:
     receivers = discovery.find_receivers()
     if not receivers:
-        print("HID++-узлов Logitech не найдено.")
-        print("Проверь, что ресивер подключён, и что udev-правило установлено.")
+        print("No Logitech HID++ nodes found.")
+        print("Check that the receiver is plugged in and the udev rule is installed.")
         return 1
 
-    print(f"Найдено HID++-узлов: {len(receivers)}")
+    print(f"HID++ nodes found: {len(receivers)}")
     failures = 0
     for receiver in receivers:
         print(f"\n  {receiver.device_path}  (PID 0x{receiver.product_id:04X})")
         try:
             transport = hidpp.Transport(receiver.device_path)
         except OSError as exc:
-            print(f"    открыть не удалось: {exc}")
-            print("    → нужно udev-правило, см. packaging/42-battary-hidraw.rules")
+            print(f"    cannot open: {exc}")
+            print("    -> the udev rule is needed, see packaging/42-battary-hidraw.rules")
             failures += 1
             continue
         with transport:
@@ -99,15 +99,15 @@ def main() -> int:
             for index in discovery.DEVICE_INDICES:
                 probe_index(link, index)
 
-    print("\n--- как это увидит апплет ---")
+    print("\n--- what the applet will see ---")
     mouse = discovery.find_first_mouse()
     if mouse is None:
-        print("Мышь не найдена.")
+        print("No mouse found.")
         return 1 if failures else 0
-    print(f"Мышь: {mouse.name!r} на {mouse.device_path}, индекс {mouse.device_index}")
+    print(f"Mouse: {mouse.name!r} on {mouse.device_path}, index {mouse.device_index}")
     with hidpp.Transport(mouse.device_path) as transport:
         reading = battery.read_battery(hidpp.Link(transport), mouse.device_index)
-    print(f"Заряд: {reading.percent}% — {reading.status.value} (через {reading.source})")
+    print(f"Charge: {reading.percent}% — {reading.status.value} (via {reading.source})")
     return 0
 
 

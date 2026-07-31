@@ -1,6 +1,6 @@
-"""Чтение заряда: фича 0x1004 (UNIFIED_BATTERY), при её отсутствии — 0x1000.
+"""Reading the charge level: feature 0x1004 (UNIFIED_BATTERY), else 0x1000.
 
-Ничего не знает про Qt и про то, как искалось устройство.
+Knows nothing about Qt, nor about how the device was discovered.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ FUNC_UNIFIED_GET_CAPABILITIES = 0x0
 FUNC_UNIFIED_GET_STATUS = 0x1
 FUNC_LEGACY_GET_STATUS = 0x0
 
-#: Флаги дискретного уровня в 0x1004 и их разумное представление в процентах.
+#: Discrete level flags in 0x1004 and a reasonable percentage for each.
 LEVEL_CRITICAL = 1 << 0
 LEVEL_LOW = 1 << 1
 LEVEL_GOOD = 1 << 2
@@ -23,18 +23,18 @@ LEVEL_PERCENT = ((LEVEL_FULL, 95), (LEVEL_GOOD, 60), (LEVEL_LOW, 20), (LEVEL_CRI
 
 
 class ChargeStatus(Enum):
-    DISCHARGING = "разряжается"
-    CHARGING = "заряжается"
-    FULL = "заряжена"
-    ERROR = "ошибка зарядки"
-    UNKNOWN = "состояние неизвестно"
+    DISCHARGING = "discharging"
+    CHARGING = "charging"
+    FULL = "fully charged"
+    ERROR = "charging error"
+    UNKNOWN = "state unknown"
 
 
 #: 0x1004 getStatus, params[2]
 UNIFIED_STATUS = {
     0: ChargeStatus.DISCHARGING,
     1: ChargeStatus.CHARGING,
-    2: ChargeStatus.CHARGING,  # медленная зарядка
+    2: ChargeStatus.CHARGING,  # slow charging
     3: ChargeStatus.FULL,
     4: ChargeStatus.ERROR,
 }
@@ -55,7 +55,7 @@ LEGACY_STATUS = {
 class BatteryReading:
     percent: int | None
     status: ChargeStatus
-    source: str  # "0x1004" или "0x1000" — какой фичей получено
+    source: str  # "0x1004" or "0x1000" — which feature produced this
 
     @property
     def is_charging(self) -> bool:
@@ -95,7 +95,7 @@ def _read_legacy(link: hidpp.Link, device_index: int, feature: int) -> BatteryRe
 
 
 def read_battery(link: hidpp.Link, device_index: int) -> BatteryReading:
-    """Прочитать заряд устройства. Бросает исключения hidpp при недоступности."""
+    """Read a device's charge. Raises hidpp exceptions when it is unreachable."""
     unified = link.feature_index(device_index, hidpp.FEATURE_UNIFIED_BATTERY)
     if unified is not None:
         return _read_unified(link, device_index, unified)
@@ -108,11 +108,11 @@ def read_battery(link: hidpp.Link, device_index: int) -> BatteryReading:
 
 
 class BatteryReader:
-    """Многократное чтение одного устройства с кэшем индекса фичи.
+    """Repeated reads of one device, caching the feature index.
 
-    Индекс фичи у устройства не меняется, пока связь жива, поэтому храним его и
-    экономим один запрос на каждый опрос. Кэш сбрасывается через `forget()` —
-    трей вызывает его при потере связи.
+    A device's feature index does not change while the link is alive, so we keep
+    it and save one request per poll. `forget()` clears the cache — the tray calls
+    it whenever the link is lost.
     """
 
     def __init__(self, link: hidpp.Link, device_index: int) -> None:

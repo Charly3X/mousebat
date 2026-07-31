@@ -1,10 +1,10 @@
-"""Иконку проверяем по пикселям: сколько закрашено и каким цветом."""
+"""The icon is checked pixel-wise: how much is painted, and in what colour."""
 
 from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", reason="нужен python3-pyqt6")
+pytest.importorskip("PyQt6.QtWidgets", reason="requires python3-pyqt6")
 
 from PyQt6.QtGui import QColor  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
@@ -21,7 +21,7 @@ def app() -> QApplication:
 
 
 def filled_columns(percent: int | None, *, charging: bool = False, offline: bool = False) -> int:
-    """Сколько столбцов внутри корпуса непрозрачны — прокси для доли заливки."""
+    """How many columns are opaque — a proxy for the fill ratio."""
     image = icon.render_pixmap(
         percent, charging=charging, offline=offline, size=220, color=WHITE
     ).toImage()
@@ -66,7 +66,7 @@ class TestFill:
         assert opaque > image.width() * 0.5
 
     def test_zero_percent_draws_only_outline(self) -> None:
-        """При 0% заливки нет — видны лишь стенки корпуса и носик."""
+        """At 0% there is no fill — only the body walls and the nub show."""
         assert filled_columns(0) < filled_columns(50)
 
     def test_offline_is_dimmed(self) -> None:

@@ -1,7 +1,7 @@
-"""Иконка в трее и опрос устройства в отдельном потоке.
+"""The tray icon, plus device polling on a worker thread.
 
-Опрос блокирующий: при потерянной связи перебор ресиверов и индексов занимает
-секунды, поэтому он живёт в рабочем потоке, а GUI только принимает готовый результат.
+Polling blocks: with the link lost, walking receivers and indices takes seconds,
+so it lives on a worker thread while the GUI only receives finished results.
 """
 
 from __future__ import annotations
@@ -14,15 +14,15 @@ from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 from . import battery, discovery, hidpp
 from .icon import make_icon
 
-#: Заряд меняется медленно, а лишние запросы будят мышь.
+#: Charge drifts slowly, and every extra request wakes the mouse up.
 POLL_INTERVAL_MS = 5 * 60 * 1000
-#: Потеряли связь — проверяем чаще, чтобы быстрее подхватить возврат.
+#: Link lost — check more often so the device is picked up quickly once it returns.
 OFFLINE_INTERVAL_MS = 60 * 1000
 
 
 @dataclass(frozen=True)
 class Sample:
-    """Результат одного опроса."""
+    """The outcome of a single poll."""
 
     name: str | None
     reading: battery.BatteryReading | None
@@ -34,7 +34,7 @@ class Sample:
 
 
 class Poller(QObject):
-    """Живёт в рабочем потоке. Держит транспорт и кэш между опросами."""
+    """Lives on the worker thread, holding the transport and cache between polls."""
 
     sampled = pyqtSignal(object)  # Sample
 
@@ -48,19 +48,20 @@ class Poller(QObject):
     def poll(self) -> None:
         try:
             self.sampled.emit(self._sample())
-        except Exception as exc:  # noqa: BLE001 — опрос не должен ронять поток
+        except Exception as exc:  # noqa: BLE001 — a poll must never kill the thread
             self._drop()
             self.sampled.emit(Sample(name=None, reading=None, detail=str(exc)))
 
     def _sample(self) -> Sample:
         if self._reader is None and not self._connect():
-            return Sample(name=None, reading=None, detail="мышь не найдена")
+            return Sample(name=None, reading=None, detail="no mouse found")
 
         assert self._reader is not None and self._mouse is not None
         try:
             return Sample(name=self._mouse.name, reading=self._reader.read())
         except (hidpp.HidppTimeout, hidpp.DeviceNotConnected, hidpp.HidppError, OSError) as exc:
-            # Мышь могла уснуть или ресивер сменить узел — начинаем поиск заново.
+            # The mouse may have gone to sleep, or the receiver moved to another
+            # node, so start the search over.
             name = self._mouse.name
             self._drop()
             return Sample(name=name, reading=None, detail=str(exc))
@@ -93,7 +94,7 @@ class Poller(QObject):
 
 
 class Tray(QObject):
-    """Собирает иконку, меню и таймер опроса."""
+    """Wires together the icon, the menu and the poll timer."""
 
     poll_requested = pyqtSignal()
 
@@ -104,13 +105,13 @@ class Tray(QObject):
 
         self._icon = QSystemTrayIcon()
         self._icon.setIcon(make_icon(None, offline=True))
-        self._icon.setToolTip("battary — опрос…")
+        self._icon.setToolTip("battary — polling…")
 
         menu = QMenu()
-        self._refresh_action = menu.addAction("Обновить")
+        self._refresh_action = menu.addAction("Refresh")
         self._refresh_action.triggered.connect(self.poll_requested.emit)
         menu.addSeparator()
-        menu.addAction("Выход").triggered.connect(app.quit)
+        menu.addAction("Quit").triggered.connect(app.quit)
         self._icon.setContextMenu(menu)
         self._menu = menu
 
@@ -118,7 +119,7 @@ class Tray(QObject):
         self._poller = Poller()
         self._poller.moveToThread(self._thread)
         self._poller.sampled.connect(self._apply)
-        self.poll_requested.connect(self._poller.poll)  # queued: исполнится в потоке
+        self.poll_requested.connect(self._poller.poll)  # queued: runs on the worker
         app.aboutToQuit.connect(self._stop)
 
         self._timer = QTimer(self)
@@ -135,7 +136,7 @@ class Tray(QObject):
     def _apply(self, sample: Sample) -> None:
         if sample.name:
             self._last_name = sample.name
-        name = self._last_name or "Мышь"
+        name = self._last_name or "Mouse"
 
         if sample.online:
             reading = sample.reading
@@ -149,7 +150,7 @@ class Tray(QObject):
         else:
             self._icon.setIcon(make_icon(None, offline=True))
             detail = f"\n{sample.detail}" if sample.detail else ""
-            self._icon.setToolTip(f"{name}\nнет связи{detail}")
+            self._icon.setToolTip(f"{name}\nno connection{detail}")
             self._timer.setInterval(OFFLINE_INTERVAL_MS)
 
     def _stop(self) -> None:
@@ -157,5 +158,5 @@ class Tray(QObject):
         if self._thread.isRunning():
             self._thread.quit()
             self._thread.wait(3000)
-        # Поток уже остановлен, поэтому транспорт закрываем прямо здесь.
+        # The thread has stopped, so closing the transport here is safe.
         self._poller.shutdown()
