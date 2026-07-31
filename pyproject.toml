@@ -1,0 +1,20 @@
+[project]
+name = "battary"
+version = "0.1.0"
+description = "Трей-индикатор заряда беспроводной мыши Logitech (HID++)"
+requires-python = ">=3.11"
+dependencies = ["PyQt6"]
+
+[project.scripts]
+battary = "battary.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["battary"]

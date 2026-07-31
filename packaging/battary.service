@@ -1,0 +1,15 @@
+[Unit]
+Description=Трей-индикатор заряда беспроводной мыши
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m battary
+WorkingDirectory=%h/projects/battary
+Environment=PYTHONPATH=%h/projects/battary
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
