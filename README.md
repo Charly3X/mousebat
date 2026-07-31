@@ -16,7 +16,8 @@ untouched. It coexists with a running `logid`, telling its own replies apart by
 
 - A battery icon filled in proportion to the charge: green from 20% up, amber below
   20%, red below 10%.
-- A lightning bolt cut out of the fill while charging.
+- A lightning bolt while charging, sitting in its own gap in the fill so it stays
+  legible at any level. The battery body itself is never broken by it.
 - Tooltip: the device name and `73% — discharging`.
 - Lost link (mouse asleep, receiver unplugged): the icon dims and the tooltip reads
   `no connection`. Recovery is picked up automatically.
@@ -27,6 +28,15 @@ untouched. It coexists with a running `logid`, telling its own replies apart by
 Polling runs every 5 minutes, or every minute while the link is down.
 
 No device is hard-coded: the first pointing device on any Logitech receiver is used.
+
+## Requirements
+
+- Linux with systemd and a tray that speaks StatusNotifierItem (KDE Plasma does).
+- Python 3.11+ and PyQt6 — the installer pulls `python3-pyqt6` on Debian/Ubuntu.
+- A Logitech receiver speaking HID++ 2.0: Logi Bolt and Unifying both work.
+
+Developed and verified on Debian 13 with Plasma 6 on Wayland, against an MX Master 3S
+on a Logi Bolt receiver and an MX Keys on Unifying.
 
 ## Install
 
