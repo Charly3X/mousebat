@@ -19,6 +19,14 @@ from .icon import make_icon
 POLL_INTERVAL_MS = 5 * 60 * 1000
 #: Link lost — check more often so the device is picked up quickly once it returns.
 OFFLINE_INTERVAL_MS = 60 * 1000
+#: How long to wait for the device's name before showing a nameless icon.
+#: Qt freezes the tray item's title at creation time, so the icon appears only
+#: once the first poll has named the mouse. A live mouse answers in well under a
+#: second; this cap only matters when there is none, and an icon reading
+#: "no connection" is better than no icon at all.
+NAME_WAIT_MS = 10 * 1000
+
+FALLBACK_TITLE = "mousebat"
 
 
 @dataclass(frozen=True)
@@ -105,9 +113,9 @@ class Tray(QObject):
         self._last_name: str | None = None
         self._autostart = autostart if autostart is not None else Autostart()
 
-        self._icon = QSystemTrayIcon()
-        self._icon.setIcon(make_icon(None, offline=True))
-        self._icon.setToolTip("mousebat — polling…")
+        # The icon is created later, in _ensure_icon: its title is fixed at
+        # creation and we want the mouse's name in it.
+        self._icon: QSystemTrayIcon | None = None
 
         menu = QMenu()
         self._refresh_action = menu.addAction("Refresh")
@@ -123,7 +131,6 @@ class Tray(QObject):
 
         menu.addSeparator()
         menu.addAction("Quit").triggered.connect(app.quit)
-        self._icon.setContextMenu(menu)
         self._menu = menu
 
         self._thread = QThread()
@@ -162,31 +169,53 @@ class Tray(QObject):
             self._autostart_action.setChecked(reached)
             self._autostart_action.blockSignals(False)
 
+    def _ensure_icon(self, name: str | None) -> QSystemTrayIcon:
+        """Create the tray item once, titled after the mouse.
+
+        Plasma shows this title in the collapsed-items list, and Qt copies it from
+        the application name when the item is created — there is no way to change
+        it afterwards, and re-creating the item makes it vanish from the tray for
+        good. Hence: name first, icon second.
+        """
+        if self._icon is not None:
+            return self._icon
+
+        title = name or FALLBACK_TITLE
+        self._app.setApplicationName(title)
+        self._app.setApplicationDisplayName(title)
+
+        self._icon = QSystemTrayIcon()
+        self._icon.setIcon(make_icon(None, offline=True))
+        self._icon.setToolTip(f"{title} — polling…")
+        self._icon.setContextMenu(self._menu)
+        self._icon.show()
+        return self._icon
+
     def start(self) -> None:
         self._thread.start()
-        self._icon.show()
         self._timer.start()
         self.poll_requested.emit()
+        # Nothing to name the icon after if no mouse ever answers, so show it anyway.
+        QTimer.singleShot(NAME_WAIT_MS, lambda: self._ensure_icon(self._last_name))
 
     @pyqtSlot(object)
     def _apply(self, sample: Sample) -> None:
         if sample.name:
             self._last_name = sample.name
         name = self._last_name or "Mouse"
+        icon_item = self._ensure_icon(sample.name)
 
         if sample.online:
             reading = sample.reading
             assert reading is not None
             percent_text = "—" if reading.percent is None else f"{reading.percent}%"
-            self._icon.setIcon(
-                make_icon(reading.percent, charging=reading.is_charging)
-            )
-            self._icon.setToolTip(f"{name}\n{percent_text} — {reading.status.value}")
+            icon_item.setIcon(make_icon(reading.percent, charging=reading.is_charging))
+            icon_item.setToolTip(f"{name}\n{percent_text} — {reading.status.value}")
             self._timer.setInterval(POLL_INTERVAL_MS)
         else:
-            self._icon.setIcon(make_icon(None, offline=True))
+            icon_item.setIcon(make_icon(None, offline=True))
             detail = f"\n{sample.detail}" if sample.detail else ""
-            self._icon.setToolTip(f"{name}\nno connection{detail}")
+            icon_item.setToolTip(f"{name}\nno connection{detail}")
             self._timer.setInterval(OFFLINE_INTERVAL_MS)
 
     def _stop(self) -> None:

@@ -29,6 +29,49 @@ def reading(percent: int | None, status: battery.ChargeStatus) -> battery.Batter
     return battery.BatteryReading(percent=percent, status=status, source="0x1004")
 
 
+class TestIconCreation:
+    """The item is titled after the mouse, so it cannot be created before the name."""
+
+    def test_no_icon_before_the_first_sample(self) -> None:
+        widget = make_tray(FakeSystemctl())
+        assert widget._icon is None
+
+    def test_named_after_the_mouse(self) -> None:
+        widget = make_tray(FakeSystemctl())
+        widget._apply(
+            tray.Sample(name="MX Master 3S", reading=reading(73, battery.ChargeStatus.DISCHARGING))
+        )
+        assert widget._icon is not None
+        assert QApplication.instance().applicationDisplayName() == "MX Master 3S"
+
+    def test_falls_back_when_no_mouse_answers(self) -> None:
+        widget = make_tray(FakeSystemctl())
+        widget._apply(tray.Sample(name=None, reading=None, detail="no mouse found"))
+        assert widget._icon is not None
+        assert QApplication.instance().applicationDisplayName() == tray.FALLBACK_TITLE
+
+    def test_created_only_once(self) -> None:
+        widget = make_tray(FakeSystemctl())
+        widget._apply(
+            tray.Sample(name="MX Master 3S", reading=reading(73, battery.ChargeStatus.DISCHARGING))
+        )
+        first = widget._icon
+        widget._apply(
+            tray.Sample(name="MX Master 3S", reading=reading(72, battery.ChargeStatus.DISCHARGING))
+        )
+        assert widget._icon is first
+
+    def test_a_late_name_does_not_replace_the_item(self) -> None:
+        """Re-creating the item would drop it from the tray, so we never do."""
+        widget = make_tray(FakeSystemctl())
+        widget._apply(tray.Sample(name=None, reading=None))
+        first = widget._icon
+        widget._apply(
+            tray.Sample(name="MX Master 3S", reading=reading(50, battery.ChargeStatus.CHARGING))
+        )
+        assert widget._icon is first
+
+
 class TestToolTip:
     def test_online_shows_name_and_percent(self) -> None:
         widget = make_tray(FakeSystemctl())

@@ -157,6 +157,15 @@ of devices. Each module is testable without the others.
   the theme colour — that is a "no data" state and must not read as healthy green.
   While charging, a lightning bolt sits over the fill.
 - **Tooltip**: two lines — the device name and `73% — discharging`.
+- **Item title** (what Plasma shows in its collapsed-items list) is the device name,
+  not `mousebat`. Qt copies the title from the application name when the tray item is
+  created and offers no way to change it later; re-creating the item removes it from
+  the tray permanently. Both were verified against Plasma 6. Therefore the icon is
+  created lazily, after the first poll has produced a name, with a 10-second cap so a
+  missing mouse still yields an icon (titled `mousebat`) rather than none. A mouse
+  swapped in later keeps the old title until the service restarts — an accepted
+  limitation, given that the alternative is implementing StatusNotifierItem and
+  dbusmenu by hand.
 - **Polling** every 5 minutes: the charge drifts slowly, and extra requests wake the
   mouse.
 - **Context menu**: Refresh (poll immediately), Start at login (a checkbox), Quit.

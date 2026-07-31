@@ -20,7 +20,9 @@ untouched. It coexists with a running `logid`, telling its own replies apart by
 - Tooltip: the device name and `73% — discharging`.
 - Lost link (mouse asleep, receiver unplugged): the icon dims and the tooltip reads
   `no connection`. Recovery is picked up automatically.
-- Right-click menu: Refresh, Quit.
+- Right-click menu: Refresh, Start at login, Quit.
+- The tray item is named after the device, so Plasma's collapsed-items list reads
+  `MX Master 3S` rather than `mousebat`.
 
 Polling runs every 5 minutes, or every minute while the link is down.
 
@@ -100,5 +102,10 @@ temporary directory. Icon tests are skipped when PyQt6 is not installed.
 
 Polling lives on its own thread: with the link lost, walking receivers and indices
 takes seconds, which would freeze the interface on the main thread.
+
+Qt freezes a tray item's title when the item is created, and re-creating the item makes
+it disappear from the tray for good — both verified against Plasma. So the icon is
+created only after the first poll has named the mouse, and swapping in a different
+mouse needs `systemctl --user restart mousebat.service` for the new name to show.
 
 Design notes: [`docs/superpowers/specs/2026-07-31-mouse-battery-tray-design.md`](docs/superpowers/specs/2026-07-31-mouse-battery-tray-design.md)
