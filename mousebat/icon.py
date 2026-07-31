@@ -112,21 +112,42 @@ def render_pixmap(
         painter.drawRect(nose)
 
         if not offline and percent is not None and percent > 0:
-            inset = pen_width
-            usable = body.adjusted(inset, inset, -inset, -inset)
+            # A pen straddles the rectangle's edge, so the outline's inner face sits
+            # half a pen inwards. Starting the fill exactly there leaves no seam
+            # between fill and outline.
+            half = pen_width / 2.0
+            inner = body.adjusted(half, half, -half, -half)
             fill = QRectF(
-                usable.left(),
-                usable.top(),
-                max(usable.width() * percent / 100.0, pen_width),
-                usable.height(),
+                inner.left(),
+                inner.top(),
+                max(inner.width() * percent / 100.0, pen_width),
+                inner.height(),
             )
             painter.drawRect(fill)
 
             if charging:
-                # The bolt is cut out of the fill, showing through as a hole.
+                # Clipping to the inner area keeps the cut away from the outline —
+                # without it the bolt slices through the top and bottom walls.
+                painter.setClipRect(inner)
+                bolt = _bolt(inner)
+
+                # Cut a slightly wider silhouette first, so the bolt reads as a gap
+                # in the fill instead of merging with it...
                 painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
-                painter.drawPolygon(_bolt(body.adjusted(0, -unit, 0, unit)))
+                gap_pen = painter.pen()
+                gap_pen.setColor(QColor(Qt.GlobalColor.black))
+                gap_pen.setWidthF(pen_width)
+                painter.setPen(gap_pen)
+                painter.setBrush(QColor(Qt.GlobalColor.black))
+                painter.drawPolygon(bolt)
+
+                # ...then paint the bolt itself, so it stays visible even when the
+                # fill is too short to contain it.
                 painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(stroke)
+                painter.drawPolygon(bolt)
+                painter.setClipping(False)
     finally:
         painter.end()
     return pixmap

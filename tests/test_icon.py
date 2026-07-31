@@ -83,20 +83,71 @@ class TestFill:
         assert offline_alpha < online_alpha
 
 
+def opaque_runs(image, y: int) -> list[tuple[int, int]]:
+    """Stretches of non-transparent pixels along row `y`."""
+    runs: list[tuple[int, int]] = []
+    start: int | None = None
+    for x in range(image.width()):
+        opaque = image.pixelColor(x, y).alpha() > 0
+        if opaque and start is None:
+            start = x
+        elif not opaque and start is not None:
+            runs.append((start, x - 1))
+            start = None
+    if start is not None:
+        runs.append((start, image.width() - 1))
+    return runs
+
+
+def top_wall_row(image) -> int:
+    """A row that crosses the battery's top wall."""
+    for y in range(image.height()):
+        if any(image.pixelColor(x, y).alpha() > 0 for x in range(image.width())):
+            return y + 3
+    raise AssertionError("the icon is empty")
+
+
+class TestOutlineIntegrity:
+    """The body must read as one shape — no gaps anywhere in it."""
+
+    def test_fill_joins_the_outline_without_a_seam(self) -> None:
+        """Half-full: left wall and fill form a single run, not two with a gap."""
+        image = icon.render_pixmap(50, size=220, color=WHITE).toImage()
+        runs = opaque_runs(image, image.height() // 2)
+        # left wall + fill, right wall, nub
+        assert len(runs) == 3
+
+    def test_full_charge_is_one_solid_body(self) -> None:
+        image = icon.render_pixmap(100, size=220, color=WHITE).toImage()
+        runs = opaque_runs(image, image.height() // 2)
+        # body, nub
+        assert len(runs) == 2
+
+    @pytest.mark.parametrize("percent", [100, 60, 30, 20, 7])
+    def test_charging_never_breaks_the_top_wall(self, percent: int) -> None:
+        """The bolt is clipped to the interior, so it cannot slice the walls."""
+        image = icon.render_pixmap(percent, charging=True, size=220, color=WHITE).toImage()
+        assert len(opaque_runs(image, top_wall_row(image))) == 1
+
+    def test_charging_wall_matches_the_idle_one(self, ) -> None:
+        idle = icon.render_pixmap(60, size=220, color=WHITE).toImage()
+        charging = icon.render_pixmap(60, charging=True, size=220, color=WHITE).toImage()
+        row = top_wall_row(idle)
+        assert opaque_runs(charging, row) == opaque_runs(idle, row)
+
+
 class TestCharging:
-    def test_bolt_is_cut_out_of_the_fill(self) -> None:
-        plain = icon.render_pixmap(100, size=220, color=WHITE).toImage()
-        charging = icon.render_pixmap(100, charging=True, size=220, color=WHITE).toImage()
+    def test_bolt_shows_beyond_a_short_fill(self) -> None:
+        """At 20% the bolt stands past the fill as its own mark, so it stays readable."""
+        idle = icon.render_pixmap(20, size=220, color=WHITE).toImage()
+        charging = icon.render_pixmap(20, charging=True, size=220, color=WHITE).toImage()
+        row = idle.height() // 2
+        assert len(opaque_runs(charging, row)) > len(opaque_runs(idle, row))
 
-        def opaque_pixels(image) -> int:
-            return sum(
-                1
-                for y in range(image.height())
-                for x in range(image.width())
-                if image.pixelColor(x, y).alpha() > 0
-            )
-
-        assert opaque_pixels(charging) < opaque_pixels(plain)
+    def test_charging_changes_the_picture(self) -> None:
+        idle = icon.render_pixmap(60, size=220, color=WHITE).toImage()
+        charging = icon.render_pixmap(60, charging=True, size=220, color=WHITE).toImage()
+        assert idle != charging
 
     def test_no_bolt_when_not_charging(self) -> None:
         first = icon.render_pixmap(60, size=220, color=WHITE).toImage()
