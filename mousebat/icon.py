@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication
 WARN_BELOW = 20
 CRITICAL_BELOW = 10
 
+COLOR_OK = QColor("#3fbf5f")
 COLOR_WARN = QColor("#e8b010")
 COLOR_CRITICAL = QColor("#e04a3f")
 COLOR_FALLBACK = QColor("#dcdcdc")
@@ -22,7 +23,11 @@ ICON_SIZES = (22, 32, 44, 64)
 
 
 def theme_color() -> QColor:
-    """The theme's regular colour for the icon; light grey without a QApplication."""
+    """The theme's regular colour, used when the charge is unknown or the link is down.
+
+    Falls back to light grey without a QApplication, so the icon can be rendered
+    headless (tests, tools/preview_icon.py).
+    """
     app = QApplication.instance()
     if app is None:
         return QColor(COLOR_FALLBACK)
@@ -30,14 +35,18 @@ def theme_color() -> QColor:
 
 
 def color_for(percent: int | None) -> QColor:
-    """Amber below 20%, red below 10%, otherwise the theme colour."""
+    """Green from 20% up, amber below 20%, red below 10%.
+
+    An unknown percentage gets the theme colour: it is a "no data" state rather
+    than a charge level, and should not read as healthy green.
+    """
     if percent is None:
         return theme_color()
     if percent < CRITICAL_BELOW:
         return QColor(COLOR_CRITICAL)
     if percent < WARN_BELOW:
         return QColor(COLOR_WARN)
-    return theme_color()
+    return QColor(COLOR_OK)
 
 
 def _bolt(rect: QRectF) -> QPolygonF:

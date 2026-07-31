@@ -44,7 +44,9 @@ def main(out_path: str) -> int:
     for column, (label, percent, charging, offline) in enumerate(STATES):
         pixmap = icon.render_pixmap(
             percent, charging=charging, offline=offline, size=CELL - 16,
-            color=QColor("#f4f4f4") if percent is None or percent >= 20 else None,
+            # Only the unknown state needs an explicit colour: without a live
+            # palette it would come out invisible against the panel.
+            color=QColor("#8a8f94") if percent is None else None,
         )
         painter.drawPixmap(column * CELL + 8, 8, pixmap)
         painter.setPen(QColor("#c8c8c8"))

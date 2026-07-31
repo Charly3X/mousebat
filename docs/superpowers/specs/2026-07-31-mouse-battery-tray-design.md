@@ -152,9 +152,10 @@ of devices. Each module is testable without the others.
 
 ## Behaviour
 
-- **Icon** 22×22: a battery outline filled in proportion to the charge. The theme's
-  regular colour, turning **amber below 20%** and **red below 10%**. While charging, a
-  lightning bolt sits over the fill.
+- **Icon** 22×22: a battery outline filled in proportion to the charge. **Green from
+  20% up**, **amber below 20%**, **red below 10%**. An unknown percentage falls back to
+  the theme colour — that is a "no data" state and must not read as healthy green.
+  While charging, a lightning bolt sits over the fill.
 - **Tooltip**: two lines — the device name and `73% — discharging`.
 - **Polling** every 5 minutes: the charge drifts slowly, and extra requests wake the
   mouse.

@@ -34,8 +34,11 @@ def filled_columns(percent: int | None, *, charging: bool = False, offline: bool
 
 
 class TestColorThresholds:
-    def test_normal_charge_uses_theme_color(self) -> None:
-        assert icon.color_for(50) == icon.theme_color()
+    def test_healthy_charge_is_green(self) -> None:
+        assert icon.color_for(50) == icon.COLOR_OK
+
+    def test_full_charge_is_green(self) -> None:
+        assert icon.color_for(100) == icon.COLOR_OK
 
     @pytest.mark.parametrize("percent", [19, 15, 10])
     def test_warning_range(self, percent: int) -> None:
@@ -46,10 +49,12 @@ class TestColorThresholds:
         assert icon.color_for(percent) == icon.COLOR_CRITICAL
 
     def test_twenty_is_not_a_warning(self) -> None:
-        assert icon.color_for(20) == icon.theme_color()
+        assert icon.color_for(20) == icon.COLOR_OK
 
     def test_unknown_percent_uses_theme_color(self) -> None:
+        """No data is not a charge level, so it must not read as healthy green."""
         assert icon.color_for(None) == icon.theme_color()
+        assert icon.color_for(None) != icon.COLOR_OK
 
 
 class TestFill:

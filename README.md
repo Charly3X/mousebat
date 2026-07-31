@@ -14,7 +14,8 @@ untouched. It coexists with a running `logid`, telling its own replies apart by
 
 ## What it shows
 
-- A battery icon filled in proportion to the charge; amber below 20%, red below 10%.
+- A battery icon filled in proportion to the charge: green from 20% up, amber below
+  20%, red below 10%.
 - A lightning bolt cut out of the fill while charging.
 - Tooltip: the device name and `73% — discharging`.
 - Lost link (mouse asleep, receiver unplugged): the icon dims and the tooltip reads
