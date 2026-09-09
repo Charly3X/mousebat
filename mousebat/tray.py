@@ -242,3 +242,91 @@ class DeviceItem(QObject):
             self._thread.wait(3000)
         # The thread has stopped, so closing the transport here is safe.
         self._poller.shutdown()
+
+
+class PlaceholderItem:
+    """A tray item shown when no device was found.
+
+    Without it the applet would have no icon at all, and the context menu — the only
+    way to quit or to toggle autostart — lives on the icon. It polls nothing: picking
+    up a device that appears later takes a restart.
+    """
+
+    def __init__(self, app: QApplication, autostart: Autostart) -> None:
+        app.setApplicationName(FALLBACK_TITLE)
+        app.setApplicationDisplayName(FALLBACK_TITLE)
+
+        self._item_menu = ItemMenu(app, autostart, with_refresh=False)
+        self._icon = QSystemTrayIcon()
+        self._icon.setIcon(make_icon(None, offline=True))
+        self._icon.setToolTip(f"{FALLBACK_TITLE}\nno device found")
+        self._icon.setContextMenu(self._item_menu.menu)
+        self._icon.show()
+
+
+class Scanner(QObject):
+    """Runs the one blocking discovery pass, off the GUI thread."""
+
+    found = pyqtSignal(object)  # list[discovery.HidppDevice]
+
+    @pyqtSlot()
+    def scan(self) -> None:
+        try:
+            devices = discovery.find_devices()
+        except Exception:  # noqa: BLE001 — an empty result still yields a usable tray
+            devices = []
+        self.found.emit(devices)
+
+
+class Tray(QObject):
+    """Discovers devices once at startup, then owns one item per device.
+
+    The device set is fixed from then on: items are only ever added, never removed,
+    because Plasma drops a re-created tray item permanently.
+    """
+
+    def __init__(self, app: QApplication, autostart: Autostart | None = None) -> None:
+        super().__init__()
+        self._app = app
+        self._autostart = autostart if autostart is not None else Autostart()
+        self._items: list[DeviceItem] = []
+        self._placeholder: PlaceholderItem | None = None
+        self._scan_thread: QThread | None = None
+        self._scanner: Scanner | None = None
+        app.aboutToQuit.connect(self._stop)
+
+    def start(self) -> None:
+        thread = QThread()
+        scanner = Scanner()
+        scanner.moveToThread(thread)
+        scanner.found.connect(self._build_items)
+        thread.started.connect(scanner.scan)
+        # Both are kept for the lifetime of the tray: a garbage-collected QThread
+        # would take the scan down with it.
+        self._scan_thread = thread
+        self._scanner = scanner
+        thread.start()
+
+    @pyqtSlot(object)
+    def _build_items(self, devices: list[discovery.HidppDevice]) -> None:
+        for device in devices:
+            item = DeviceItem(self._app, device, self._autostart)
+            item.start()
+            self._items.append(item)
+
+        if not self._items:
+            self._placeholder = PlaceholderItem(self._app, self._autostart)
+
+        # Every item took the application name to title itself; restore ours.
+        self._app.setApplicationName(FALLBACK_TITLE)
+        self._app.setApplicationDisplayName(FALLBACK_TITLE)
+
+        if self._scan_thread is not None:
+            self._scan_thread.quit()
+
+    def _stop(self) -> None:
+        for item in self._items:
+            item.stop()
+        if self._scan_thread is not None and self._scan_thread.isRunning():
+            self._scan_thread.quit()
+            self._scan_thread.wait(3000)

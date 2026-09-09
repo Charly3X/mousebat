@@ -148,3 +148,54 @@ class TestItemMenu:
         menu = tray.ItemMenu(QApplication.instance(), Autostart(runner=fake), with_refresh=True)
         menu._autostart_action.setChecked(True)
         assert not menu._autostart_action.isChecked()
+
+
+def make_tray(fake: FakeSystemctl | None = None) -> tray.Tray:
+    runner = fake if fake is not None else FakeSystemctl()
+    return tray.Tray(QApplication.instance(), autostart=Autostart(runner=runner))
+
+
+@pytest.fixture
+def no_polling(monkeypatch) -> None:
+    """Keep `Tray` tests off the real hardware.
+
+    `Tray._build_items` calls `DeviceItem.start()`, which starts a worker thread that
+    would go looking for actual receivers under `/dev`. Creating the items is what is
+    under test here; polling them is `DeviceItem`'s own business.
+    """
+    monkeypatch.setattr(tray.DeviceItem, "start", lambda self: None)
+
+
+class TestTray:
+    def test_one_item_per_device(self, no_polling) -> None:
+        widget = make_tray()
+        widget._build_items([KEYBOARD, MOUSE])
+        assert len(widget._items) == 2
+        assert widget._placeholder is None
+        widget._stop()
+
+    def test_items_follow_the_discovery_order(self, no_polling) -> None:
+        widget = make_tray()
+        widget._build_items([KEYBOARD, MOUSE])
+        assert [item._device.name for item in widget._items] == ["MX Keys", "MX Master 3S"]
+        widget._stop()
+
+    def test_placeholder_when_nothing_is_found(self, no_polling) -> None:
+        """The menu lives on a tray icon, so with no items there is no way to quit."""
+        widget = make_tray()
+        widget._build_items([])
+        assert widget._items == []
+        assert widget._placeholder is not None
+        widget._stop()
+
+    def test_application_name_is_restored_after_building(self, no_polling) -> None:
+        """Each item steals the application name to get its title; put it back."""
+        widget = make_tray()
+        widget._build_items([KEYBOARD, MOUSE])
+        assert QApplication.instance().applicationDisplayName() == tray.FALLBACK_TITLE
+        widget._stop()
+
+    def test_no_items_before_discovery_finishes(self) -> None:
+        widget = make_tray()
+        assert widget._items == []
+        assert widget._placeholder is None
