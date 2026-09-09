@@ -1,5 +1,12 @@
 # Keyboard Support and One Tray Item per Device — Implementation Plan
 
+**Status: executed on 2026-09-09.** All seven tasks are done and verified on the target
+machine; the checkboxes below are left as written rather than ticked, since the record
+that matters is the commit series on `multi-device-tray`. Two things went differently
+from the plan and are noted inline: `tools/spike_probe.py` also used the renamed
+symbols (Task 1), and verification caught a concurrency bug that changed the
+reconnection design (Task 7, and the spec's Reconnection section).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Show the MX Keys keyboard's real battery percentage next to the mouse, as two independent KDE tray items.
