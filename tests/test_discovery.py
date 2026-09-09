@@ -21,6 +21,25 @@ def make_hidraw(root: str, name: str, hid_id: str, descriptor: bytes) -> None:
         handle.write(descriptor)
 
 
+def make_paired_hidraw(root: str, name: str, hid_id: str, descriptor: bytes) -> None:
+    """A node whose device is nested under another HID device, as paired devices are.
+
+    Mirrors the real topology: `/sys/class/hidraw/hidraw5/device` resolves to
+    `.../0003:046D:C52B.0007/0003:046D:408A.0008`, so its parent is the receiver's
+    own HID device rather than a USB interface.
+    """
+    receiver = os.path.join(root, "_tree", "0003:046D:C52B.0007")
+    child = os.path.join(receiver, "0003:046D:408A.0008")
+    os.makedirs(child, exist_ok=True)
+    for directory, ids in ((receiver, "0003:0000046D:0000C52B"), (child, hid_id)):
+        with open(os.path.join(directory, "uevent"), "w", encoding="utf-8") as handle:
+            handle.write(f"HID_ID={ids}\nHID_NAME=Logitech\n")
+        with open(os.path.join(directory, "report_descriptor"), "wb") as handle:
+            handle.write(descriptor)
+    os.makedirs(os.path.join(root, name))
+    os.symlink(child, os.path.join(root, name, "device"))
+
+
 class TestParseHidId:
     def test_extracts_vendor_and_product(self) -> None:
         assert discovery.parse_hid_id("0003:0000046D:0000C548") == (0x046D, 0xC548)
@@ -63,6 +82,22 @@ class TestFindReceivers:
 
     def test_missing_directory_yields_nothing(self, tmp_path) -> None:
         assert discovery.find_receivers(str(tmp_path / "absent")) == []
+
+    def test_paired_device_node_is_skipped(self, tmp_path) -> None:
+        """The keyboard answers on its own node too; taking both would double it."""
+        root = str(tmp_path)
+        make_hidraw(root, "hidraw4", "0003:0000046D:0000C52B", HIDPP_DESCRIPTOR)
+        make_paired_hidraw(root, "hidraw5", "0003:0000046D:0000408A", HIDPP_DESCRIPTOR)
+
+        found = discovery.find_receivers(root, dev_root="/dev")
+        assert [node.device_path for node in found] == ["/dev/hidraw4"]
+
+    def test_receiver_node_is_kept(self, tmp_path) -> None:
+        root = str(tmp_path)
+        make_hidraw(root, "hidraw4", "0003:0000046D:0000C52B", HIDPP_DESCRIPTOR)
+        assert not discovery.is_paired_device_node(
+            os.path.join(root, "hidraw4", "device")
+        )
 
     def test_node_without_descriptor_is_skipped(self, tmp_path) -> None:
         root = str(tmp_path)

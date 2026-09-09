@@ -84,6 +84,23 @@ def _hidraw_sort_key(name: str) -> tuple[int, str]:
     return (int(digits) if digits else 1 << 30, name)
 
 
+def is_paired_device_node(device_dir: str) -> bool:
+    """Whether this hidraw node belongs to a paired device rather than a receiver.
+
+    A receiver's HID device hangs off a USB interface; a paired device's hangs off the
+    receiver's own HID device. Only the latter has a HID parent, and a HID device is
+    recognisable by its report descriptor. Verified on the target machine:
+
+        hidraw4 -> .../3-4:1.2/0003:046D:C52B.0007               parent 3-4:1.2
+        hidraw5 -> .../0003:046D:C52B.0007/0003:046D:408A.0008   parent 0003:046D:C52B...
+
+    Both kinds answer HID++, so without this the same device is reported twice — once
+    through its receiver and once through its own node.
+    """
+    parent = os.path.dirname(os.path.realpath(device_dir))
+    return os.path.exists(os.path.join(parent, "report_descriptor"))
+
+
 def find_receivers(sys_hidraw: str = SYS_HIDRAW, dev_root: str = "/dev") -> list[ReceiverNode]:
     """Every Logitech hidraw node ready to speak HID++."""
     try:
@@ -103,6 +120,8 @@ def find_receivers(sys_hidraw: str = SYS_HIDRAW, dev_root: str = "/dev") -> list
         except OSError:
             continue
         if not speaks_hidpp(descriptor):
+            continue
+        if is_paired_device_node(device_dir):
             continue
         found.append(ReceiverNode(device_path=os.path.join(dev_root, name), product_id=ids[1]))
     return found
