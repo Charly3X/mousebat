@@ -8,7 +8,8 @@ pytest.importorskip("PyQt6.QtWidgets", reason="requires python3-pyqt6")
 
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
-from mousebat import battery, tray  # noqa: E402
+from mousebat import battery, discovery, icon, tray  # noqa: E402
+from mousebat.autostart import Autostart  # noqa: E402
 
 from .test_autostart import FakeSystemctl  # noqa: E402
 
@@ -19,128 +20,131 @@ def app() -> QApplication:
     return existing if existing is not None else QApplication([])
 
 
-def make_tray(fake: FakeSystemctl) -> tray.Tray:
-    from mousebat.autostart import Autostart
+KEYBOARD = discovery.HidppDevice(
+    "/dev/hidraw4", 6, "MX Keys", (4, 5), discovery.DEVICE_TYPE_KEYBOARD
+)
+MOUSE = discovery.HidppDevice(
+    "/dev/hidraw3", 2, "MX Master 3S", (4, 5), discovery.DEVICE_TYPE_MOUSE
+)
 
-    return tray.Tray(QApplication.instance(), autostart=Autostart(runner=fake))
+
+def make_item(device: discovery.HidppDevice, fake: FakeSystemctl | None = None) -> tray.DeviceItem:
+    runner = fake if fake is not None else FakeSystemctl()
+    return tray.DeviceItem(QApplication.instance(), device, Autostart(runner=runner))
 
 
 def reading(percent: int | None, status: battery.ChargeStatus) -> battery.BatteryReading:
-    return battery.BatteryReading(percent=percent, status=status, source="0x1004")
+    return battery.BatteryReading(percent=percent, status=status, source="0x1000")
 
 
-class TestIconCreation:
-    """The item is titled after the mouse, so it cannot be created before the name."""
+class TestShapeForType:
+    def test_keyboard(self) -> None:
+        assert tray.shape_for(discovery.DEVICE_TYPE_KEYBOARD) is icon.Shape.KEYBOARD
 
-    def test_no_icon_before_the_first_sample(self) -> None:
-        widget = make_tray(FakeSystemctl())
-        assert widget._icon is None
+    def test_mouse_and_trackball_share_a_shape(self) -> None:
+        assert tray.shape_for(discovery.DEVICE_TYPE_MOUSE) is icon.Shape.MOUSE
+        assert tray.shape_for(discovery.DEVICE_TYPE_TRACKBALL) is icon.Shape.MOUSE
 
-    def test_named_after_the_mouse(self) -> None:
-        widget = make_tray(FakeSystemctl())
-        widget._apply(
-            tray.Sample(name="MX Master 3S", reading=reading(73, battery.ChargeStatus.DISCHARGING))
-        )
-        assert widget._icon is not None
-        assert QApplication.instance().applicationDisplayName() == "MX Master 3S"
-
-    def test_falls_back_when_no_mouse_answers(self) -> None:
-        widget = make_tray(FakeSystemctl())
-        widget._apply(tray.Sample(name=None, reading=None, detail="no mouse found"))
-        assert widget._icon is not None
-        assert QApplication.instance().applicationDisplayName() == tray.FALLBACK_TITLE
-
-    def test_created_only_once(self) -> None:
-        widget = make_tray(FakeSystemctl())
-        widget._apply(
-            tray.Sample(name="MX Master 3S", reading=reading(73, battery.ChargeStatus.DISCHARGING))
-        )
-        first = widget._icon
-        widget._apply(
-            tray.Sample(name="MX Master 3S", reading=reading(72, battery.ChargeStatus.DISCHARGING))
-        )
-        assert widget._icon is first
-
-    def test_a_late_name_does_not_replace_the_item(self) -> None:
-        """Re-creating the item would drop it from the tray, so we never do."""
-        widget = make_tray(FakeSystemctl())
-        widget._apply(tray.Sample(name=None, reading=None))
-        first = widget._icon
-        widget._apply(
-            tray.Sample(name="MX Master 3S", reading=reading(50, battery.ChargeStatus.CHARGING))
-        )
-        assert widget._icon is first
+    def test_unknown_type_falls_back_to_a_battery(self) -> None:
+        assert tray.shape_for(0x42) is icon.Shape.BATTERY
 
 
-class TestToolTip:
-    def test_online_shows_name_and_percent(self) -> None:
-        widget = make_tray(FakeSystemctl())
-        widget._apply(
-            tray.Sample(name="MX Master 3S", reading=reading(73, battery.ChargeStatus.DISCHARGING))
-        )
-        assert widget._icon.toolTip() == "MX Master 3S\n73% — discharging"
+class TestDeviceItem:
+    def test_titled_after_its_device_at_creation(self) -> None:
+        """Qt freezes the title when the item is created, so the name must be known."""
+        item = make_item(KEYBOARD)
+        assert item._icon is not None
+        assert QApplication.instance().applicationDisplayName() == "MX Keys"
 
-    def test_offline_keeps_the_last_known_name(self) -> None:
-        widget = make_tray(FakeSystemctl())
-        widget._apply(
-            tray.Sample(name="MX Master 3S", reading=reading(73, battery.ChargeStatus.DISCHARGING))
-        )
-        widget._apply(tray.Sample(name=None, reading=None, detail="timeout"))
-        assert widget._icon.toolTip().startswith("MX Master 3S\nno connection")
+    def test_online_tooltip_shows_name_and_percent(self) -> None:
+        item = make_item(KEYBOARD)
+        item._apply(tray.Sample(name="MX Keys", reading=reading(100, battery.ChargeStatus.FULL)))
+        assert item._icon.toolTip() == "MX Keys\n100% — fully charged"
+
+    def test_offline_tooltip_keeps_the_device_name(self) -> None:
+        item = make_item(MOUSE)
+        item._apply(tray.Sample(name=None, reading=None, detail="timeout"))
+        assert item._icon.toolTip().startswith("MX Master 3S\nno connection")
 
     def test_unknown_percent_is_shown_as_a_dash(self) -> None:
-        widget = make_tray(FakeSystemctl())
-        widget._apply(
-            tray.Sample(name="Mouse", reading=reading(None, battery.ChargeStatus.DISCHARGING))
+        item = make_item(MOUSE)
+        item._apply(
+            tray.Sample(name="MX Master 3S", reading=reading(None, battery.ChargeStatus.DISCHARGING))
         )
-        assert "—" in widget._icon.toolTip()
+        assert "—" in item._icon.toolTip()
 
-
-class TestPollInterval:
     def test_offline_polls_more_often(self) -> None:
-        widget = make_tray(FakeSystemctl())
-        widget._apply(tray.Sample(name=None, reading=None, detail="no mouse found"))
-        assert widget._timer.interval() == tray.OFFLINE_INTERVAL_MS
+        item = make_item(MOUSE)
+        item._apply(tray.Sample(name=None, reading=None, detail="asleep"))
+        assert item._timer.interval() == tray.OFFLINE_INTERVAL_MS
 
     def test_back_online_restores_the_slow_interval(self) -> None:
-        widget = make_tray(FakeSystemctl())
-        widget._apply(tray.Sample(name=None, reading=None))
-        widget._apply(
+        item = make_item(MOUSE)
+        item._apply(tray.Sample(name=None, reading=None))
+        item._apply(
             tray.Sample(name="MX Master 3S", reading=reading(50, battery.ChargeStatus.CHARGING))
         )
-        assert widget._timer.interval() == tray.POLL_INTERVAL_MS
+        assert item._timer.interval() == tray.POLL_INTERVAL_MS
+
+    def test_the_item_is_never_replaced(self) -> None:
+        """Re-creating a tray item drops it from the panel for good."""
+        item = make_item(MOUSE)
+        first = item._icon
+        item._apply(tray.Sample(name=None, reading=None))
+        item._apply(
+            tray.Sample(name="MX Master 3S", reading=reading(50, battery.ChargeStatus.CHARGING))
+        )
+        assert item._icon is first
 
 
-class TestAutostartAction:
+class TestItemMenu:
+    def test_refresh_can_be_omitted(self) -> None:
+        with_refresh = tray.ItemMenu(
+            QApplication.instance(), Autostart(runner=FakeSystemctl()), with_refresh=True
+        )
+        without = tray.ItemMenu(
+            QApplication.instance(), Autostart(runner=FakeSystemctl()), with_refresh=False
+        )
+        assert "Refresh" in [action.text() for action in with_refresh.menu.actions()]
+        assert "Refresh" not in [action.text() for action in without.menu.actions()]
+
     def test_checkbox_mirrors_the_unit(self) -> None:
-        widget = make_tray(FakeSystemctl(enabled=True))
-        widget._sync_autostart_action()
-        assert widget._autostart_action.isChecked()
+        menu = tray.ItemMenu(
+            QApplication.instance(),
+            Autostart(runner=FakeSystemctl(enabled=True)),
+            with_refresh=True,
+        )
+        menu.sync()
+        assert menu._autostart_action.isChecked()
 
     def test_hidden_without_an_installed_unit(self) -> None:
-        widget = make_tray(FakeSystemctl(installed=False))
-        widget._sync_autostart_action()
-        assert not widget._autostart_action.isVisible()
+        menu = tray.ItemMenu(
+            QApplication.instance(),
+            Autostart(runner=FakeSystemctl(installed=False)),
+            with_refresh=True,
+        )
+        menu.sync()
+        assert not menu._autostart_action.isVisible()
 
     def test_toggling_calls_systemctl(self) -> None:
         fake = FakeSystemctl(enabled=False)
-        widget = make_tray(fake)
-        widget._autostart_action.setChecked(True)
+        menu = tray.ItemMenu(QApplication.instance(), Autostart(runner=fake), with_refresh=True)
+        menu._autostart_action.setChecked(True)
         assert "enable" in fake.verbs
         assert fake.state is True
 
     def test_syncing_does_not_call_enable_or_disable(self) -> None:
         """Refreshing the checkmark must not flip the unit as a side effect."""
         fake = FakeSystemctl(enabled=True)
-        widget = make_tray(fake)
+        menu = tray.ItemMenu(QApplication.instance(), Autostart(runner=fake), with_refresh=True)
         fake.calls.clear()
-        widget._sync_autostart_action()
+        menu.sync()
         assert "enable" not in fake.verbs
         assert "disable" not in fake.verbs
 
     def test_refusal_reverts_the_checkmark(self) -> None:
         fake = FakeSystemctl(enabled=False)
         fake.refuse = True
-        widget = make_tray(fake)
-        widget._autostart_action.setChecked(True)
-        assert not widget._autostart_action.isChecked()
+        menu = tray.ItemMenu(QApplication.instance(), Autostart(runner=fake), with_refresh=True)
+        menu._autostart_action.setChecked(True)
+        assert not menu._autostart_action.isChecked()
