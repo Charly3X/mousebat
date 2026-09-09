@@ -138,8 +138,12 @@ supports `0x1004`, the keyboard only `0x1000`.
 ### Icon — `icon.py`
 
 Two identical battery outlines in one panel are indistinguishable whenever the two
-charges are close. `render_pixmap` takes `kind` and selects a silhouette: keyboard,
-mouse, or the current battery as the fallback for any other type.
+charges are close. `render_pixmap` selects a silhouette: keyboard, mouse, or the current
+battery as the fallback.
+
+It selects on a `Shape` enum of the icon module's own, not on a HID++ device type. This
+module's contract is that it knows nothing about devices — percentage and status in,
+`QIcon` out — so the device-type-to-shape mapping lives in `tray.py` instead.
 
 Fill ratio, colour thresholds, the charging bolt and the offline dimming stay shared —
 only the outline and the geometry of the fillable area differ per shape.
