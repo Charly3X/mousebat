@@ -1,13 +1,16 @@
 # mousebat
 
-A tray indicator for Logitech wireless mouse battery level, for KDE Plasma.
+A tray indicator for Logitech wireless device battery levels, for KDE Plasma.
 
-The kernel creates no `power_supply` entry for mice paired to a Logi Bolt receiver,
-so Plasma's stock "Battery and Brightness" widget cannot show them. `mousebat` reads
-the charge itself — over HID++ 2.0 through the receiver's `/dev/hidraw` node — and
-draws an icon in the tray.
+The kernel creates no `power_supply` entry at all for mice paired to a Logi Bolt
+receiver, and for an MX Keys on Unifying it records only a coarse level — `Low`,
+`Normal`, `Full` — which UPower turns into an invented percentage, flagged internally
+as "should be ignored" and then rendered anyway. Either way Plasma's stock "Battery and
+Brightness" widget cannot show the real figure. `mousebat` reads the charge itself —
+over HID++ 2.0 through the receiver's `/dev/hidraw` node — and draws one tray icon per
+device.
 
-Read-only: nothing is ever written to the mouse, so a
+Read-only: nothing is ever written to the device, so a
 [logiops](https://github.com/PixlOne/logiops) configuration (`/etc/logid.cfg`) stays
 untouched. It coexists with a running `logid`, telling its own replies apart by
 `software_id`.
@@ -20,20 +23,25 @@ untouched. It coexists with a running `logid`, telling its own replies apart by
 
 ## What it shows
 
-- A battery icon filled in proportion to the charge: green from 20% up, amber below
-  20%, red below 10%.
+- An icon filled in proportion to the charge: green from 20% up, amber below 20%, red
+  below 10%. The keyboard gets a nubless rounded slab and the mouse the classic
+  battery, so two items side by side are told apart at a glance.
 - A lightning bolt while charging, sitting in its own gap in the fill so it stays
   legible at any level. The battery body itself is never broken by it.
 - Tooltip: the device name and `73% — discharging`.
-- Lost link (mouse asleep, receiver unplugged): the icon dims and the tooltip reads
-  `no connection`. Recovery is picked up automatically.
+- Lost link (device asleep, receiver unplugged): the icon dims and the tooltip reads
+  `no connection`. Recovery is picked up automatically, and a replugged receiver is
+  followed to its new `/dev/hidraw` node.
 - Right-click menu: Refresh, Start at login, Quit.
-- The tray item is named after the device, so Plasma's collapsed-items list reads
-  `MX Master 3S` rather than `mousebat`.
+- Each tray item is named after its device, so Plasma's collapsed-items list reads
+  `MX Master 3S` and `MX Keys Wireless Keyboard` rather than `mousebat`.
 
-Polling runs every 5 minutes, or every minute while the link is down.
+Polling runs every 5 minutes per device, or every minute while a link is down. Each
+device polls on its own thread, so one asleep does not hold up the other.
 
-No device is hard-coded: the first pointing device on any Logitech receiver is used.
+No device is hard-coded: every keyboard, mouse and trackball found on any Logitech
+receiver gets its own tray item. The set is decided once at startup, so a device paired
+later shows up after a restart (`systemctl --user restart mousebat`).
 
 ## Requirements
 

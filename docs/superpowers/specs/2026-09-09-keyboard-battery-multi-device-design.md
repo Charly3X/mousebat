@@ -1,7 +1,7 @@
 # mousebat — keyboard support and one tray item per device
 
 Date: 2026-09-09
-Status: design approved; not yet implemented
+Status: design approved; implemented and verified on the target machine
 
 Extends [the original design](2026-07-31-mouse-battery-tray-design.md), which put the
 keyboard out of scope.
@@ -207,10 +207,35 @@ The application name is restored to `mousebat` once all items exist.
 A sleeping device or a moved receiver dims its item and speeds polling to once a minute,
 as today. The item is never removed — Plasma drops a re-created tray item for good.
 
-Reconnection does not reuse the stored `/dev/hidrawN` path: hidraw numbering can change
-when a receiver is replugged. The device is located again by identity — name,
-`device_index` and type — across a fresh node scan. The set of tray items does not
-change either way.
+Reconnection tries the stored `/dev/hidrawN` path first and only walks the receivers
+when that fails, locating the device by identity — name, `device_index` and type.
+Opening the node is not proof: the node goes on opening fine after the device behind it
+has gone quiet, so it is a failed *read* that marks the path stale. The set of tray
+items does not change either way.
+
+The first draft of this section had it the other way round — always relocate, never
+trust the path — and that turned out to be a bug. Verification on the target machine
+showed the keyboard's item reading `no connection / device not found` seconds after
+discovery had named it correctly. Reproduced deterministically with two threads calling
+`find_devices` at once:
+
+```
+поток 0: ['MX Master 3S', 'MX Keys WirelessMX Keys W']
+поток 1: ['MX Master 3S', 'MX Keys WirelessMX Keys W']
+```
+
+A walk asks every index the same questions with the same `software_id`, so two walks at
+once read each other's answers and the name comes back spliced together — which then
+matches no device by identity. `software_id` separates us from `logid`; it does not
+separate one of our own threads from another.
+
+Two changes came out of it, and both are load-bearing:
+
+1. **The known path is tried before scanning.** The path comes from discovery moments
+   earlier, so the first poll of every device no longer walks at all. That removes the
+   startup collision along with seconds of pointless work per device.
+2. **`find_devices` holds a lock.** Walks are serialised process-wide, so two pollers
+   recovering at the same moment queue instead of corrupting each other.
 
 ### Errors
 
@@ -250,8 +275,12 @@ report's 16 parameter bytes.
 - **Tray order** follows the walk order — receivers by hidraw number, then
   `device_index`. Replugging a receiver can renumber the nodes and so reorder the items.
 - **A newly paired device** appears only after a restart, by the decision above.
-- **Distinguishing items** rests on the silhouettes. Two devices of the same type get
+- **Distinguishing items** rests on the two shapes. Two devices of the same type get
   the same shape and are told apart by tooltip alone.
+- **Concurrent HID++ walks** are serialised by a lock inside `find_devices`, which is
+  enough for the tray but is a process-wide lock, not a device-wide one: a second
+  program walking the same receiver would still cross replies with us. The real fix
+  would be a per-thread `software_id`, which the transport does not offer.
 
 ## Order of work
 

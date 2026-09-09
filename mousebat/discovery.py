@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from dataclasses import dataclass
 
 from . import hidpp
@@ -180,6 +181,16 @@ def probe_devices(link: hidpp.Link, device_path: str) -> list[HidppDevice]:
     return devices
 
 
+#: Serialises the index walk across threads.
+#:
+#: `software_id` tells our replies apart from another program's, but not one of our
+#: own threads from another: two walks at once ask the same indices the same questions
+#: with the same id, and each reads the other's answers. Observed on the target
+#: machine — a name came back spliced together as "MX Keys WirelessMX Keys W", which
+#: then failed to match its own device by identity. One walk at a time.
+_WALK = threading.Lock()
+
+
 def find_devices(
     sys_hidraw: str = SYS_HIDRAW, dev_root: str = "/dev", *, timeout: float = 0.5
 ) -> list[HidppDevice]:
@@ -188,15 +199,16 @@ def find_devices(
     Receivers by hidraw number, then by `device_index` — the order the tray items
     will end up in.
     """
-    devices: list[HidppDevice] = []
-    for receiver in find_receivers(sys_hidraw, dev_root):
-        try:
-            with hidpp.Transport(receiver.device_path) as transport:
-                link = hidpp.Link(transport, timeout=timeout)
-                devices.extend(probe_devices(link, receiver.device_path))
-        except OSError:
-            continue
-    return devices
+    with _WALK:
+        devices: list[HidppDevice] = []
+        for receiver in find_receivers(sys_hidraw, dev_root):
+            try:
+                with hidpp.Transport(receiver.device_path) as transport:
+                    link = hidpp.Link(transport, timeout=timeout)
+                    devices.extend(probe_devices(link, receiver.device_path))
+            except OSError:
+                continue
+        return devices
 
 
 def relocate(

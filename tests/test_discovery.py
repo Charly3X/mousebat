@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 
 import pytest
 
@@ -233,6 +235,43 @@ class TestFindDevices:
 
     def test_returns_empty_when_nothing_found(self, tmp_path) -> None:
         assert discovery.find_devices(str(tmp_path)) == []
+
+    def test_walks_never_overlap(self, tmp_path, monkeypatch) -> None:
+        """Two pollers recovering at once must not walk the indices together.
+
+        A walk asks every index the same questions with the same `software_id`, so an
+        overlapping walk reads the other's replies. Seen on the target machine: a name
+        came back spliced together as "MX Keys WirelessMX Keys W", which then matched
+        no device by identity and the tray reported it missing.
+        """
+        root = str(tmp_path)
+        make_hidraw(root, "hidraw4", "0003:0000046D:0000C52B", HIDPP_DESCRIPTOR)
+        monkeypatch.setattr(discovery.hidpp, "Transport", lambda path: FakeTransport())
+
+        depth = 0
+        overlaps: list[int] = []
+
+        def probe(link, path):  # noqa: ANN001, ANN202 — a stand-in for probe_devices
+            nonlocal depth
+            depth += 1
+            if depth > 1:
+                overlaps.append(depth)
+            time.sleep(0.02)
+            depth -= 1
+            return []
+
+        monkeypatch.setattr(discovery, "probe_devices", probe)
+
+        threads = [
+            threading.Thread(target=discovery.find_devices, args=(root, "/dev"))
+            for _ in range(4)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert overlaps == []
 
 
 class TestRelocate:

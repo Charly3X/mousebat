@@ -97,6 +97,82 @@ class TestDeviceItem:
         assert item._icon is first
 
 
+class FakeReader:
+    """Answers one reading, or raises to mimic a device that has gone quiet."""
+
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.reads = 0
+
+    def read(self) -> battery.BatteryReading:
+        self.reads += 1
+        if self.fail:
+            raise tray.hidpp.HidppTimeout("asleep")
+        return reading(100, battery.ChargeStatus.DISCHARGING)
+
+    def forget(self) -> None:
+        pass
+
+
+class TestPollerConnect:
+    """The known path is tried before the receivers are walked again.
+
+    A walk takes seconds, wakes every device and locks out the other pollers, so it
+    has to be the fallback. Getting this wrong was a real bug: the first poll of every
+    device scanned, two pollers scanned at once, and their replies crossed.
+    """
+
+    def stub(self, monkeypatch, reader: FakeReader) -> list[str]:
+        """Record relocation attempts and hand out a fake link."""
+        relocations: list[str] = []
+
+        def relocate(device):  # noqa: ANN001, ANN202
+            relocations.append(device.name)
+            return device
+
+        class Transport:
+            def close(self) -> None:
+                pass
+
+        monkeypatch.setattr(tray.discovery, "relocate", relocate)
+        monkeypatch.setattr(tray.hidpp, "Transport", lambda path: Transport())
+        monkeypatch.setattr(tray.hidpp, "Link", lambda transport: object())
+        monkeypatch.setattr(tray.battery, "BatteryReader", lambda link, index: reader)
+        return relocations
+
+    def test_first_poll_does_not_scan(self, monkeypatch) -> None:
+        reader = FakeReader()
+        relocations = self.stub(monkeypatch, reader)
+        poller = tray.Poller(KEYBOARD)
+
+        sample = poller._sample()
+        assert sample.online
+        assert relocations == []
+        assert reader.reads == 1
+
+    def test_a_failed_read_forces_a_scan_next_time(self, monkeypatch) -> None:
+        reader = FakeReader(fail=True)
+        relocations = self.stub(monkeypatch, reader)
+        poller = tray.Poller(KEYBOARD)
+
+        first = poller._sample()
+        assert not first.online
+        assert relocations == []  # the failure itself does not scan
+
+        poller._sample()
+        assert relocations == ["MX Keys"]  # the next attempt does
+
+    def test_a_missing_device_is_reported_not_raised(self, monkeypatch) -> None:
+        monkeypatch.setattr(tray.discovery, "relocate", lambda device: None)
+        monkeypatch.setattr(
+            tray.hidpp, "Transport", lambda path: (_ for _ in ()).throw(OSError("gone"))
+        )
+        poller = tray.Poller(KEYBOARD)
+        sample = poller._sample()
+        assert not sample.online
+        assert sample.detail == "device not found"
+
+
 class TestItemMenu:
     def test_refresh_can_be_omitted(self) -> None:
         with_refresh = tray.ItemMenu(

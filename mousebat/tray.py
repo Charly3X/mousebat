@@ -59,6 +59,9 @@ class Poller(QObject):
         self._device = device
         self._transport: hidpp.Transport | None = None
         self._reader: battery.BatteryReader | None = None
+        #: Discovery just handed us this path, so it is worth trying before scanning.
+        #: Cleared by a failed read, which is the sign the node may have moved.
+        self._trust_path = True
 
     @pyqtSlot()
     def poll(self) -> None:
@@ -74,21 +77,36 @@ class Poller(QObject):
 
         assert self._reader is not None
         try:
-            return Sample(name=self._device.name, reading=self._reader.read())
+            reading = self._reader.read()
         except (hidpp.HidppTimeout, hidpp.DeviceNotConnected, hidpp.HidppError, OSError) as exc:
-            # Asleep, or the receiver moved to another node: start over next time.
+            # Asleep, or the receiver moved to another node: start over next time,
+            # and stop trusting the path until a read proves it again.
             self._drop()
+            self._trust_path = False
             return Sample(name=self._device.name, reading=None, detail=str(exc))
+        self._trust_path = True
+        return Sample(name=self._device.name, reading=reading)
 
     def _connect(self) -> bool:
-        """Locate the device again and open a link to it.
+        """Open a link to the device, scanning for it only when the path fails.
 
-        The stored path is not reused: hidraw numbering changes when a receiver is
-        replugged, so the device is found by identity instead.
+        The path comes from discovery and is normally still right. Walking the
+        receivers to find the device again costs seconds, wakes every device and has
+        to take a lock against the other pollers, so it is the fallback rather than
+        the first move. Only a failed read marks the path stale: the node itself goes
+        on opening fine after the device behind it has gone quiet.
         """
-        device = discovery.relocate(self._device)
-        if device is None:
+        if self._trust_path and self._open(self._device):
+            return True
+
+        # hidraw numbering changes when a receiver is replugged, so the device is
+        # found again by identity rather than by its old path.
+        relocated = discovery.relocate(self._device)
+        if relocated is None:
             return False
+        return self._open(relocated)
+
+    def _open(self, device: discovery.HidppDevice) -> bool:
         try:
             transport = hidpp.Transport(device.device_path)
         except OSError:
