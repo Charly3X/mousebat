@@ -122,21 +122,29 @@ temporary directory. Icon tests are skipped when PyQt6 is not installed.
 | Module | Responsibility |
 |---|---|
 | `mousebat/hidpp.py` | HID++ packets, filtering foreign replies, both error schemes |
-| `mousebat/discovery.py` | finding HID++ nodes and the mice behind them |
+| `mousebat/discovery.py` | finding HID++ nodes and the devices behind them |
 | `mousebat/battery.py` | charge via feature `0x1004`, falling back to `0x1000` |
-| `mousebat/icon.py` | icon rendering |
-| `mousebat/tray.py` | icon, menu, polling on a worker thread |
+| `mousebat/icon.py` | icon rendering, one silhouette per device kind |
+| `mousebat/tray.py` | an item per device, plus the coordinator that discovers them |
 | `mousebat/autostart.py` | reads and flips the unit's enablement |
 
-Polling lives on its own thread: with the link lost, walking receivers and indices
-takes seconds, which would freeze the interface on the main thread.
+Each device polls on a thread of its own: with a link lost, walking receivers and
+indices takes seconds, which would freeze the interface on the main thread and would
+let one sleeping device hold up the other. Those walks are serialised against each
+other, though — two at once ask the same indices the same questions with the same
+`software_id` and read each other's answers.
 
 Qt freezes a tray item's title when the item is created, and re-creating the item makes
-it disappear from the tray for good — both verified against Plasma. So the icon is
-created only after the first poll has named the mouse, and swapping in a different
-mouse needs `systemctl --user restart mousebat.service` for the new name to show.
+it disappear from the tray for good — both verified against Plasma. So discovery runs
+first and names every device before a single icon exists. That is also why the device
+set is fixed at startup: a newly paired device needs
+`systemctl --user restart mousebat.service` to get an item of its own.
 
-Design notes: [`docs/superpowers/specs/2026-07-31-mouse-battery-tray-design.md`](docs/superpowers/specs/2026-07-31-mouse-battery-tray-design.md)
+Design notes:
+[`2026-07-31-mouse-battery-tray-design.md`](docs/superpowers/specs/2026-07-31-mouse-battery-tray-design.md)
+for the original single-device applet, and
+[`2026-09-09-keyboard-battery-multi-device-design.md`](docs/superpowers/specs/2026-09-09-keyboard-battery-multi-device-design.md)
+for keyboard support and the tray item per device.
 
 ## License
 
