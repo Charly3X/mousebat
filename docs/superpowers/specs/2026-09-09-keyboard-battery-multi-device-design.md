@@ -138,20 +138,42 @@ supports `0x1004`, the keyboard only `0x1000`.
 ### Icon — `icon.py`
 
 Two identical battery outlines in one panel are indistinguishable whenever the two
-charges are close. `render_pixmap` selects a silhouette: keyboard, mouse, or the current
-battery as the fallback.
+charges are close. `render_pixmap` selects a silhouette per device.
 
 It selects on a `Shape` enum of the icon module's own, not on a HID++ device type. This
 module's contract is that it knows nothing about devices — percentage and status in,
 `QIcon` out — so the device-type-to-shape mapping lives in `tray.py` instead.
 
-Fill ratio, colour thresholds, the charging bolt and the offline dimming stay shared —
-only the outline and the geometry of the fillable area differ per shape.
+**What the shapes are.** The keyboard is a wide, softly rounded slab with no nub. The
+mouse keeps the classic battery: square corners and the nub on the right. An
+unrecognised device shares the mouse's look, which is harmless — the tooltip names it.
 
-Draw the preview first. `tools/preview_icon.py` gains a row per shape, and the result is
-judged at 22 px before the shapes are committed to. If the keyboard silhouette does not
-read at panel size, fall back to distinguishing by orientation: horizontal battery for
-the keyboard, vertical for the mouse.
+Drawing the devices themselves was tried across three rounds and dropped:
+
+- A tall mouse seen from above against a wide keyboard put the pair at odds; the two
+  icons no longer looked like one family.
+- Key marks inside the keyboard slab render as a dashed line at panel size, not as
+  keys — the identifying detail became noise.
+- A mouse in profile is wide, and so agrees with the keyboard, but reads as an abstract
+  wedge rather than a mouse.
+
+A shape that looks deliberate beats one that looks like a failed drawing, so the
+distinction is carried by the nub and the corner radius, with both shapes lying the same
+way up and filling in the same direction.
+
+Measured while judging this: the panel here renders the icon at about 29 px, not the
+22 px the geometry is authored against — the battery body in `docs/images/in-panel.png`
+is 21x12 px under 6x magnification. Qt therefore picks the 32 px pixmap out of the
+`QIcon`. `tools/preview_icon.py` shows both bracketing sizes magnified, so this is
+judged at the size it will actually be seen.
+
+Fill ratio, colour thresholds, the charging bolt and the offline dimming stay shared —
+only the outline and the geometry of the fillable area differ per shape. The fill is
+clipped to the outline, so a rounded or curved shape cannot be overspilled by the
+rectangle that represents the charge.
+
+Draw the preview first: `tools/preview_icon.py` gains a row per shape and a magnified
+strip at panel size, and the shapes are judged there before being committed to.
 
 ### Tray — `tray.py`
 

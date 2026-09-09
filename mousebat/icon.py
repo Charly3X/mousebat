@@ -69,7 +69,31 @@ def _battery_silhouette(unit: float, pen: float) -> Silhouette:
     )
 
 
-_SILHOUETTES = {Shape.BATTERY: _battery_silhouette}
+def _keyboard_silhouette(unit: float, pen: float) -> Silhouette:
+    """A wide slab, barely rounded. No key marks.
+
+    A row of little keys is what a keyboard has, but at panel size it renders as a
+    dashed line rather than as keys, which reads as noise. The slab carries the
+    identity by contrast with the mouse's profile instead.
+    """
+    body = QRectF(1.5 * unit, 7.0 * unit, 19 * unit, 8 * unit)
+    outline = QPainterPath()
+    outline.addRoundedRect(body, 0.9 * unit, 0.9 * unit)
+    half = pen / 2.0
+    return Silhouette(outline=outline, interior=body.adjusted(half, half, -half, -half))
+
+
+#: The mouse keeps the classic battery, nub and all; the keyboard is the nubless slab.
+#: Drawing the devices themselves was tried and dropped — a mouse is taller than wide
+#: seen from above, which clashed with the keyboard's orientation, and in profile it
+#: read as an abstract wedge. A shape that looks deliberate beats one that looks like
+#: a failed drawing. An unrecognised device shares the mouse's look, which is harmless:
+#: the tooltip names it.
+_SILHOUETTES = {
+    Shape.BATTERY: _battery_silhouette,
+    Shape.KEYBOARD: _keyboard_silhouette,
+    Shape.MOUSE: _battery_silhouette,
+}
 
 
 def _fill_rect(interior: QRectF, percent: int, pen: float, vertical: bool) -> QRectF:
@@ -167,7 +191,11 @@ def render_pixmap(
             inner = silhouette.interior
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(stroke)
+            # Curved outlines — the mouse's crown and nose — would let a plain
+            # rectangle spill past the shape, so the fill is clipped to the outline.
+            painter.setClipPath(silhouette.outline)
             painter.drawRect(_fill_rect(inner, percent, pen_width, silhouette.vertical))
+            painter.setClipping(False)
 
             if charging:
                 # Clipping to the inner area keeps the cut away from the outline —

@@ -844,6 +844,14 @@ Grow the sheet to fit the extra strip — replace the `height` computation:
 
 - [ ] **Step 6: Render the preview and judge it**
 
+> **Outcome, recorded after the fact.** Three rounds of device drawings were rejected —
+> a top-view mouse clashed with the keyboard's orientation, key marks inside the slab
+> smeared into a dashed line at panel size, and a profile mouse read as an abstract
+> wedge. What shipped: the keyboard is a nubless rounded slab, the mouse keeps the
+> classic battery, and both lie the same way up. The judging size was wrong at first
+> too: the panel renders at about 29 px, not 22, measured off
+> `docs/images/in-panel.png`. See the spec's Icon section.
+
 Run:
 
 ```bash
