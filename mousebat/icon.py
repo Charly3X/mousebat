@@ -5,8 +5,11 @@ Knows nothing about devices or polling: percentage and status in, QIcon out.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
+
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPalette, QPixmap, QPolygonF
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPixmap, QPolygonF
 from PyQt6.QtWidgets import QApplication
 
 #: Colour thresholds: strictly below these values.
@@ -20,6 +23,62 @@ COLOR_FALLBACK = QColor("#dcdcdc")
 
 #: Sizes baked into the QIcon — the panel picks whichever fits.
 ICON_SIZES = (22, 32, 44, 64)
+
+
+class Shape(Enum):
+    """Which silhouette carries the charge."""
+
+    BATTERY = "battery"
+    KEYBOARD = "keyboard"
+    MOUSE = "mouse"
+
+
+@dataclass(frozen=True)
+class Silhouette:
+    """A shape's geometry in pixels, for one icon size.
+
+    outline — stroked with the charge colour.
+    interior — the area the charge fills, already inset by half a pen so the fill
+        meets the outline's inner face without a seam.
+    solid — painted filled rather than stroked (the battery's nub).
+    vertical — fill grows upwards from the bottom instead of rightwards.
+    """
+
+    outline: QPainterPath
+    interior: QRectF
+    solid: QPainterPath | None = None
+    vertical: bool = False
+
+
+def _battery_silhouette(unit: float, pen: float) -> Silhouette:
+    body = QRectF(2 * unit, 6 * unit, 16 * unit, 10 * unit)
+    outline = QPainterPath()
+    outline.addRect(body)
+    nose = QPainterPath()
+    nose.addRect(
+        QRectF(
+            body.right() + pen,
+            body.top() + body.height() * 0.28,
+            1.8 * unit,
+            body.height() * 0.44,
+        )
+    )
+    half = pen / 2.0
+    return Silhouette(
+        outline=outline, interior=body.adjusted(half, half, -half, -half), solid=nose
+    )
+
+
+_SILHOUETTES = {Shape.BATTERY: _battery_silhouette}
+
+
+def _fill_rect(interior: QRectF, percent: int, pen: float, vertical: bool) -> QRectF:
+    """The filled portion of the interior, never thinner than a pen stroke."""
+    if vertical:
+        height = max(interior.height() * percent / 100.0, pen)
+        return QRectF(interior.left(), interior.bottom() - height, interior.width(), height)
+    width = max(interior.width() * percent / 100.0, pen)
+    return QRectF(interior.left(), interior.top(), width, interior.height())
 
 
 def theme_color() -> QColor:
@@ -67,12 +126,13 @@ def _bolt(rect: QRectF) -> QPolygonF:
 def render_pixmap(
     percent: int | None,
     *,
+    shape: Shape = Shape.BATTERY,
     charging: bool = False,
     offline: bool = False,
     size: int = 64,
     color: QColor | None = None,
 ) -> QPixmap:
-    """A horizontal battery: outline, nub on the right, fill proportional to charge."""
+    """The device's silhouette, filled in proportion to its charge."""
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
 
@@ -82,19 +142,7 @@ def render_pixmap(
 
     unit = size / 22.0  # proportions are authored for a 22x22 panel icon
     pen_width = max(1.0, round(1.6 * unit))
-
-    body = QRectF(
-        2 * unit,
-        6 * unit,
-        16 * unit,
-        10 * unit,
-    )
-    nose = QRectF(
-        body.right() + pen_width,
-        body.top() + body.height() * 0.28,
-        1.8 * unit,
-        body.height() * 0.44,
-    )
+    silhouette = _SILHOUETTES[shape](unit, pen_width)
 
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -105,25 +153,21 @@ def render_pixmap(
         pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(body)
+        painter.drawPath(silhouette.outline)
 
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(stroke)
-        painter.drawRect(nose)
+        if silhouette.solid is not None:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(stroke)
+            painter.drawPath(silhouette.solid)
 
         if not offline and percent is not None and percent > 0:
-            # A pen straddles the rectangle's edge, so the outline's inner face sits
-            # half a pen inwards. Starting the fill exactly there leaves no seam
-            # between fill and outline.
-            half = pen_width / 2.0
-            inner = body.adjusted(half, half, -half, -half)
-            fill = QRectF(
-                inner.left(),
-                inner.top(),
-                max(inner.width() * percent / 100.0, pen_width),
-                inner.height(),
-            )
-            painter.drawRect(fill)
+            # A pen straddles the shape's edge, so the outline's inner face sits half
+            # a pen inwards; `interior` is already inset by that much, which leaves no
+            # seam between fill and outline.
+            inner = silhouette.interior
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(stroke)
+            painter.drawRect(_fill_rect(inner, percent, pen_width, silhouette.vertical))
 
             if charging:
                 # Clipping to the inner area keeps the cut away from the outline —
@@ -154,12 +198,18 @@ def render_pixmap(
 
 
 def make_icon(
-    percent: int | None, *, charging: bool = False, offline: bool = False
+    percent: int | None,
+    *,
+    shape: Shape = Shape.BATTERY,
+    charging: bool = False,
+    offline: bool = False,
 ) -> QIcon:
     """A QIcon carrying every panel size."""
     icon = QIcon()
     for size in ICON_SIZES:
         icon.addPixmap(
-            render_pixmap(percent, charging=charging, offline=offline, size=size)
+            render_pixmap(
+                percent, shape=shape, charging=charging, offline=offline, size=size
+            )
         )
     return icon

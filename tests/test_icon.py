@@ -155,6 +155,12 @@ class TestCharging:
         assert first == second
 
 
+class TestShape:
+    def test_battery_is_the_default(self) -> None:
+        explicit = icon.render_pixmap(50, shape=icon.Shape.BATTERY, size=220, color=WHITE)
+        assert explicit.toImage() == icon.render_pixmap(50, size=220, color=WHITE).toImage()
+
+
 class TestMakeIcon:
     def test_contains_all_panel_sizes(self) -> None:
         available = {size.width() for size in icon.make_icon(50).availableSizes()}
