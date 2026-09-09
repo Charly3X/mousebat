@@ -111,37 +111,32 @@ class TestDeviceName:
         assert discovery.device_name(link, 1, 0x02) == "Mouse"
 
 
-class TestProbeMice:
-    def test_returns_pointer_devices_only(self) -> None:
-        link, _ = link_with(
-            # index 1 — a keyboard, skipped
+class TestProbeDevices:
+    def test_returns_both_keyboard_and_mouse(self) -> None:
+        replies: list[bytes | None] = [
+            # index 1 — the keyboard, previously discarded
             pong(1),
             name_feature_reply(1),
-            type_reply(1, 0x00),
+            type_reply(1, discovery.DEVICE_TYPE_KEYBOARD),
+            name_count_reply(1, 7),
+            name_chunk_reply(1, b"MX Keys"),
             # index 2 — the mouse
             pong(2),
             name_feature_reply(2),
             type_reply(2, discovery.DEVICE_TYPE_MOUSE),
             name_count_reply(2, 12),
             name_chunk_reply(2, b"MX Master 3S"),
-            # indices 3..6 stay silent
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        mice = discovery.probe_mice(link, "/dev/hidraw2")
-        assert [(mouse.device_index, mouse.name) for mouse in mice] == [(2, "MX Master 3S")]
+        ]
+        replies += [None] * 12  # indices 3..6 stay silent, three ping attempts each
+        link, _ = link_with(*replies)
 
-    def test_trackball_counts_as_pointer(self) -> None:
+        found = discovery.probe_devices(link, "/dev/hidraw4")
+        assert [(device.device_index, device.name, device.kind) for device in found] == [
+            (1, "MX Keys", discovery.DEVICE_TYPE_KEYBOARD),
+            (2, "MX Master 3S", discovery.DEVICE_TYPE_MOUSE),
+        ]
+
+    def test_trackball_is_accepted(self) -> None:
         replies: list[bytes | None] = [
             pong(1),
             name_feature_reply(1),
@@ -149,24 +144,40 @@ class TestProbeMice:
             name_count_reply(1, 9),
             name_chunk_reply(1, b"Trackball"),
         ]
-        replies += [None] * 18  # indices 2..6 stay silent, three ping attempts each
+        replies += [None] * 18
         link, _ = link_with(*replies)
-        mice = discovery.probe_mice(link, "/dev/hidraw2")
-        assert [mouse.device_index for mouse in mice] == [1]
+        assert [device.device_index for device in discovery.probe_devices(link, "/dev/x")] == [1]
+
+    def test_receiver_type_is_rejected(self) -> None:
+        """Type 0x07 is the receiver answering about itself — it has no battery."""
+        replies: list[bytes | None] = [pong(1), name_feature_reply(1), type_reply(1, 0x07)]
+        replies += [None] * 18
+        link, _ = link_with(*replies)
+        assert discovery.probe_devices(link, "/dev/x") == []
 
     def test_silent_receiver_yields_nothing(self) -> None:
         link, _ = link_with(*([None] * 18))
-        assert discovery.probe_mice(link, "/dev/hidraw2") == []
+        assert discovery.probe_devices(link, "/dev/hidraw2") == []
 
     def test_device_without_name_feature_is_skipped(self) -> None:
         replies: list[bytes | None] = [pong(1), name_feature_reply(1, feature=0x00)]
         replies += [None] * 18
         link, _ = link_with(*replies)
-        assert discovery.probe_mice(link, "/dev/hidraw2") == []
+        assert discovery.probe_devices(link, "/dev/hidraw2") == []
 
 
-class TestFindFirstMouse:
-    def test_takes_first_receiver_that_answers(self, tmp_path, monkeypatch) -> None:
+def fake_devices(path: str) -> list[discovery.HidppDevice]:
+    """Two devices behind hidraw4, none anywhere else."""
+    if not path.endswith("hidraw4"):
+        return []
+    return [
+        discovery.HidppDevice(path, 6, "MX Keys", (4, 5), discovery.DEVICE_TYPE_KEYBOARD),
+        discovery.HidppDevice(path, 2, "MX Master 3S", (4, 5), discovery.DEVICE_TYPE_MOUSE),
+    ]
+
+
+class TestFindDevices:
+    def test_collects_across_every_receiver(self, tmp_path, monkeypatch) -> None:
         root = str(tmp_path)
         make_hidraw(root, "hidraw2", "0003:0000046D:0000C548", HIDPP_DESCRIPTOR)
         make_hidraw(root, "hidraw4", "0003:0000046D:0000C52B", HIDPP_DESCRIPTOR)
@@ -178,20 +189,39 @@ class TestFindFirstMouse:
             return FakeTransport()
 
         monkeypatch.setattr(discovery.hidpp, "Transport", fake_transport)
-        monkeypatch.setattr(
-            discovery,
-            "probe_mice",
-            lambda link, path: (
-                [discovery.MouseDevice(path, 2, "MX Master 3S", (4, 2))]
-                if path.endswith("hidraw4")
-                else []
-            ),
-        )
+        monkeypatch.setattr(discovery, "probe_devices", lambda link, path: fake_devices(path))
 
-        mouse = discovery.find_first_mouse(root, dev_root="/dev")
-        assert mouse is not None
-        assert (mouse.device_path, mouse.device_index) == ("/dev/hidraw4", 2)
+        found = discovery.find_devices(root, dev_root="/dev")
+        assert [device.name for device in found] == ["MX Keys", "MX Master 3S"]
+        # Every receiver is visited: unlike before, we do not stop at the first hit.
         assert opened == ["/dev/hidraw2", "/dev/hidraw4"]
 
-    def test_returns_none_when_nothing_found(self, tmp_path) -> None:
-        assert discovery.find_first_mouse(str(tmp_path)) is None
+    def test_returns_empty_when_nothing_found(self, tmp_path) -> None:
+        assert discovery.find_devices(str(tmp_path)) == []
+
+
+class TestRelocate:
+    def test_finds_the_same_device_at_a_new_path(self, tmp_path, monkeypatch) -> None:
+        """hidraw numbering changes when a receiver is replugged; identity does not."""
+        root = str(tmp_path)
+        make_hidraw(root, "hidraw4", "0003:0000046D:0000C52B", HIDPP_DESCRIPTOR)
+        monkeypatch.setattr(discovery.hidpp, "Transport", lambda path: FakeTransport())
+        monkeypatch.setattr(discovery, "probe_devices", lambda link, path: fake_devices(path))
+
+        stale = discovery.HidppDevice(
+            "/dev/hidraw9", 6, "MX Keys", (4, 5), discovery.DEVICE_TYPE_KEYBOARD
+        )
+        found = discovery.relocate(stale, root, dev_root="/dev")
+        assert found is not None
+        assert found.device_path == "/dev/hidraw4"
+
+    def test_returns_none_when_the_device_is_gone(self, tmp_path, monkeypatch) -> None:
+        root = str(tmp_path)
+        make_hidraw(root, "hidraw4", "0003:0000046D:0000C52B", HIDPP_DESCRIPTOR)
+        monkeypatch.setattr(discovery.hidpp, "Transport", lambda path: FakeTransport())
+        monkeypatch.setattr(discovery, "probe_devices", lambda link, path: [])
+
+        stale = discovery.HidppDevice(
+            "/dev/hidraw9", 6, "MX Keys", (4, 5), discovery.DEVICE_TYPE_KEYBOARD
+        )
+        assert discovery.relocate(stale, root, dev_root="/dev") is None

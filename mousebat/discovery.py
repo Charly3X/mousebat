@@ -1,4 +1,4 @@
-"""Locating Logitech receivers and the mice paired with them.
+"""Locating Logitech receivers and the battery-bearing devices paired with them.
 
 A receiver speaks HID++ on only one of its hidraw nodes — the interface whose
 report descriptor declares reports 0x10/0x11. The remaining nodes are plain
@@ -20,9 +20,14 @@ FUNC_NAME_GET_COUNT = 0x0
 FUNC_NAME_GET_NAME = 0x1
 FUNC_NAME_GET_TYPE = 0x2
 
+DEVICE_TYPE_KEYBOARD = 0x00
 DEVICE_TYPE_MOUSE = 0x03
 DEVICE_TYPE_TRACKBALL = 0x05
-POINTER_TYPES = frozenset({DEVICE_TYPE_MOUSE, DEVICE_TYPE_TRACKBALL})
+
+#: Device types worth a tray item. A receiver (0x07) has no battery of its own.
+BATTERY_DEVICE_TYPES = frozenset(
+    {DEVICE_TYPE_KEYBOARD, DEVICE_TYPE_MOUSE, DEVICE_TYPE_TRACKBALL}
+)
 
 DEVICE_INDICES = range(1, 7)
 
@@ -38,13 +43,14 @@ class ReceiverNode:
 
 
 @dataclass(frozen=True)
-class MouseDevice:
-    """A mouse found behind a receiver."""
+class HidppDevice:
+    """A battery-bearing device found behind a receiver."""
 
     device_path: str
     device_index: int
     name: str
     protocol: tuple[int, int]
+    kind: int
 
 
 def parse_hid_id(hid_id: str) -> tuple[int, int] | None:
@@ -125,9 +131,9 @@ def device_name(link: hidpp.Link, device_index: int, name_feature: int) -> str:
     return raw.split(b"\x00", 1)[0].decode("ascii", errors="replace").strip()
 
 
-def probe_mice(link: hidpp.Link, device_path: str) -> list[MouseDevice]:
-    """Walk indices 1..6 and return those that turned out to be pointing devices."""
-    mice: list[MouseDevice] = []
+def probe_devices(link: hidpp.Link, device_path: str) -> list[HidppDevice]:
+    """Walk indices 1..6 and return every device that carries a battery."""
+    devices: list[HidppDevice] = []
     for index in DEVICE_INDICES:
         try:
             protocol = link.ping(index)
@@ -137,32 +143,57 @@ def probe_mice(link: hidpp.Link, device_path: str) -> list[MouseDevice]:
             name_feature = link.feature_index(index, hidpp.FEATURE_DEVICE_NAME)
             if name_feature is None:
                 continue
-            if device_type(link, index, name_feature) not in POINTER_TYPES:
+            kind = device_type(link, index, name_feature)
+            if kind not in BATTERY_DEVICE_TYPES:
                 continue
             name = device_name(link, index, name_feature)
         except (hidpp.HidppTimeout, hidpp.HidppError, hidpp.DeviceNotConnected):
             continue
-        mice.append(
-            MouseDevice(
+        devices.append(
+            HidppDevice(
                 device_path=device_path,
                 device_index=index,
-                name=name or "Mouse",
+                name=name or "Device",
                 protocol=protocol,
+                kind=kind,
             )
         )
-    return mice
+    return devices
 
 
-def find_first_mouse(
+def find_devices(
     sys_hidraw: str = SYS_HIDRAW, dev_root: str = "/dev", *, timeout: float = 0.5
-) -> MouseDevice | None:
-    """The first mouse in walk order: receivers by hidraw number, then by device index."""
+) -> list[HidppDevice]:
+    """Every device behind every receiver, in walk order.
+
+    Receivers by hidraw number, then by `device_index` — the order the tray items
+    will end up in.
+    """
+    devices: list[HidppDevice] = []
     for receiver in find_receivers(sys_hidraw, dev_root):
         try:
             with hidpp.Transport(receiver.device_path) as transport:
-                mice = probe_mice(hidpp.Link(transport, timeout=timeout), receiver.device_path)
+                link = hidpp.Link(transport, timeout=timeout)
+                devices.extend(probe_devices(link, receiver.device_path))
         except OSError:
             continue
-        if mice:
-            return mice[0]
+    return devices
+
+
+def relocate(
+    device: HidppDevice,
+    sys_hidraw: str = SYS_HIDRAW,
+    dev_root: str = "/dev",
+    *,
+    timeout: float = 0.5,
+) -> HidppDevice | None:
+    """Find a known device again, wherever its hidraw node has moved to.
+
+    Replugging a receiver renumbers the nodes, so a stored path goes stale while the
+    device itself is unchanged. Identity is what survives: name, index and type.
+    """
+    identity = (device.name, device.device_index, device.kind)
+    for candidate in find_devices(sys_hidraw, dev_root, timeout=timeout):
+        if (candidate.name, candidate.device_index, candidate.kind) == identity:
+            return candidate
     return None

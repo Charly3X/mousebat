@@ -273,7 +273,15 @@ Also update the module docstring's first line — it says "and the mice paired w
 """Locating Logitech receivers and the battery-bearing devices paired with them.
 ```
 
-Leave `POINTER_TYPES` deleted; nothing outside this module used it.
+`POINTER_TYPES` goes away, and `tools/spike_probe.py` used it — at line 40 for its
+`pointing device` / `other` label, and at line 103 for `find_first_mouse`. Update the
+tool in this task: it is the verification instrument for Task 7 and must not be left
+broken. Print the type by name from a `TYPE_NAMES` mapping and say whether the type is
+one we accept, which also retires the misleading `(other)` next to the keyboard. Loop
+over `find_devices()` instead of reading a single mouse, and wrap each read in
+`try/except`, pinging first: a device that dozed off during the walk answers the
+retrying `ping` but not a single-shot feature lookup, and a diagnostic tool must report
+that rather than crash.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -281,7 +289,22 @@ Run: `./.venv/bin/python -m pytest tests/test_discovery.py -q`
 Expected: PASS.
 
 Then run the whole suite: `./.venv/bin/python -m pytest`
-Expected: FAIL in `tests/test_tray.py` only — `tray.py` still calls `discovery.find_first_mouse`. That is Task 5's job; do not fix it here.
+Expected: PASS, all of it — which is a trap worth naming. `tray.py` still refers to
+`discovery.find_first_mouse` and `discovery.MouseDevice`, but only inside
+`Poller._connect` and an annotation, and the existing tray tests drive `_apply` directly
+without ever polling. Python resolves the attribute at call time, so the breakage is
+latent: green tests, and the applet would raise `AttributeError` the moment it polled.
+Do not try to fix it here — Task 5 replaces that code wholesale. Just do not mistake the
+green suite for a working applet.
+
+Confirm the latent break is the only one left:
+
+```bash
+grep -rn "find_first_mouse\|probe_mice\|MouseDevice\|POINTER_TYPES" --include="*.py" \
+  mousebat/ tools/ tests/
+```
+
+Expected: two hits, both in `mousebat/tray.py`.
 
 - [ ] **Step 5: Commit**
 
