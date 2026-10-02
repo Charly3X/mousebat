@@ -87,7 +87,8 @@ Show the keyboard alongside the mouse, as **two independent tray items**.
 Non-goals, carried over or decided here:
 
 - No low-battery notifications (the original spec's deliberate choice).
-- No automatic rescanning: the device set is fixed at startup.
+- No continuous rescanning. The device set is settled within the first five minutes
+  and then left alone; see **Catching a device that was asleep** below.
 - Nothing is written to any device; HID++ reads only.
 - Solaar stays out, for the reason the original spec already gives: on startup it writes
   its own settings to the device — smartshift, hi-res scroll, DPI — which is exactly
@@ -202,6 +203,30 @@ unchanged: `setApplicationName` before creating each item, since Qt copies the
 application name into the item's title at creation and it cannot be changed afterwards.
 The application name is restored to `mousebat` once all items exist.
 
+### Catching a device that was asleep
+
+Discovery runs once at startup, then again 30 seconds, 2 minutes and 5 minutes in.
+
+The original design settled the device set in a single pass, on the reasoning that a
+device is paired rarely. The case that actually matters turned out to be a different
+one, and it recurs on nearly every boot: the session starts before the user has touched
+the mouse, so the mouse is asleep, answers nothing, and gets no tray item at all. Seen
+in the wild — a service up for five days with an item for the keyboard and none for the
+mouse, while the mouse answered HID++ perfectly well when asked directly.
+
+The retries cover the window in which a device is actually woken, and then stop: a
+permanent background rescan would wake every device forever for a case that is over
+within minutes.
+
+Two properties make the retries safe:
+
+- **Scans are additive.** A device already holding an item is skipped, matched on the
+  same identity reconnection uses — name, `device_index` and type, never the path.
+  Items are still only ever added.
+- **The placeholder is hidden, not destroyed,** once real items appear. Destroying it
+  would run into the same Plasma behaviour that forbids re-creating an item; hiding is
+  reversible and leaves the menu reachable until it is no longer needed.
+
 ### Reconnection
 
 A sleeping device or a moved receiver dims its item and speeds polling to once a minute,
@@ -274,7 +299,8 @@ report's 16 parameter bytes.
 
 - **Tray order** follows the walk order — receivers by hidraw number, then
   `device_index`. Replugging a receiver can renumber the nodes and so reorder the items.
-- **A newly paired device** appears only after a restart, by the decision above.
+- **A device paired more than five minutes after start** appears only after a restart.
+  The retries cover a device that exists but was asleep, not one that did not exist.
 - **Distinguishing items** rests on the two shapes. Two devices of the same type get
   the same shape and are told apart by tooltip alone.
 - **Concurrent HID++ walks** are serialised by a lock inside `find_devices`, which is

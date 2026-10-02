@@ -40,8 +40,10 @@ Polling runs every 5 minutes per device, or every minute while a link is down. E
 device polls on its own thread, so one asleep does not hold up the other.
 
 No device is hard-coded: every keyboard, mouse and trackball found on any Logitech
-receiver gets its own tray item. The set is decided once at startup, so a device paired
-later shows up after a restart (`systemctl --user restart mousebat`).
+receiver gets its own tray item. The search runs at startup and again 30 seconds, 2
+minutes and 5 minutes in, which catches a device that was asleep when the session came
+up — the usual fate of a mouse. After that the set is settled, so a device paired later
+shows up on the next restart (`systemctl --user restart mousebat`).
 
 ## Requirements
 

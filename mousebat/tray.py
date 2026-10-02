@@ -21,6 +21,14 @@ POLL_INTERVAL_MS = 5 * 60 * 1000
 #: Link lost — check more often so the device is picked up quickly once it returns.
 OFFLINE_INTERVAL_MS = 60 * 1000
 
+#: When to look for devices again after the first scan, in milliseconds from start.
+#:
+#: The session comes up before the user has touched the mouse, so the first scan
+#: routinely misses it and the device set would stay wrong until a restart. These
+#: few retries cover the minutes in which a device is actually woken; after that
+#: the tray goes quiet rather than waking every device forever.
+RESCAN_DELAYS_MS = (30 * 1000, 2 * 60 * 1000, 5 * 60 * 1000)
+
 FALLBACK_TITLE = "mousebat"
 
 #: A trackball is a mouse as far as the panel is concerned.
@@ -29,6 +37,15 @@ SHAPE_FOR_TYPE = {
     discovery.DEVICE_TYPE_MOUSE: icon.Shape.MOUSE,
     discovery.DEVICE_TYPE_TRACKBALL: icon.Shape.MOUSE,
 }
+
+
+def _identity(device: discovery.HidppDevice) -> tuple[str, int, int]:
+    """What makes a device the same device across scans.
+
+    The path is deliberately not part of it: hidraw numbering changes when a
+    receiver is replugged, and the device behind it has not.
+    """
+    return device.name, device.device_index, device.kind
 
 
 def shape_for(kind: int) -> icon.Shape:
@@ -281,6 +298,9 @@ class PlaceholderItem:
         self._icon.setContextMenu(self._item_menu.menu)
         self._icon.show()
 
+    def hide(self) -> None:
+        self._icon.hide()
+
 
 class Scanner(QObject):
     """Runs the one blocking discovery pass, off the GUI thread."""
@@ -309,42 +329,61 @@ class Tray(QObject):
         self._autostart = autostart if autostart is not None else Autostart()
         self._items: list[DeviceItem] = []
         self._placeholder: PlaceholderItem | None = None
-        self._scan_thread: QThread | None = None
-        self._scanner: Scanner | None = None
+        #: Scans in flight, held so neither thread nor scanner is collected early.
+        self._scans: list[tuple[QThread, Scanner]] = []
         app.aboutToQuit.connect(self._stop)
 
     def start(self) -> None:
+        self._run_scan()
+        for delay in RESCAN_DELAYS_MS:
+            self._schedule_rescan(delay)
+
+    def _schedule_rescan(self, delay_ms: int) -> None:
+        QTimer.singleShot(delay_ms, self._run_scan)
+
+    def _run_scan(self) -> None:
+        """Walk the receivers on a worker thread and hand the result to the GUI."""
         thread = QThread()
         scanner = Scanner()
         scanner.moveToThread(thread)
         scanner.found.connect(self._build_items)
         thread.started.connect(scanner.scan)
-        # Both are kept for the lifetime of the tray: a garbage-collected QThread
-        # would take the scan down with it.
-        self._scan_thread = thread
-        self._scanner = scanner
+        scanner.found.connect(thread.quit)
+        thread.finished.connect(thread.deleteLater)
+        # Held until the scan ends: a garbage-collected QThread would take it down.
+        self._scans.append((thread, scanner))
+        thread.finished.connect(lambda: self._forget_scan(thread))
         thread.start()
+
+    def _forget_scan(self, thread: QThread) -> None:
+        self._scans = [pair for pair in self._scans if pair[0] is not thread]
 
     @pyqtSlot(object)
     def _build_items(self, devices: list[discovery.HidppDevice]) -> None:
         for device in devices:
+            if _identity(device) in {_identity(item._device) for item in self._items}:
+                continue
             item = DeviceItem(self._app, device, self._autostart)
             item.start()
             self._items.append(item)
 
         if not self._items:
             self._placeholder = PlaceholderItem(self._app, self._autostart)
+        elif self._placeholder is not None:
+            # Devices turned up after all. The placeholder is hidden rather than
+            # destroyed: Plasma drops a re-created tray item for good, so hiding
+            # is the only way back that leaves anything to return to.
+            self._placeholder.hide()
 
         # Every item took the application name to title itself; restore ours.
         self._app.setApplicationName(FALLBACK_TITLE)
         self._app.setApplicationDisplayName(FALLBACK_TITLE)
 
-        if self._scan_thread is not None:
-            self._scan_thread.quit()
 
     def _stop(self) -> None:
         for item in self._items:
             item.stop()
-        if self._scan_thread is not None and self._scan_thread.isRunning():
-            self._scan_thread.quit()
-            self._scan_thread.wait(3000)
+        for thread, _scanner in list(self._scans):
+            if thread.isRunning():
+                thread.quit()
+                thread.wait(3000)

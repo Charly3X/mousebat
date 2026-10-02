@@ -275,3 +275,85 @@ class TestTray:
         widget = make_tray()
         assert widget._items == []
         assert widget._placeholder is None
+
+
+class TestRescan:
+    """A device asleep at session start gets an item from a later scan.
+
+    The tray is built once at startup, which misses the mouse on nearly every
+    boot: the session comes up before the user has touched it. Later scans fix
+    that, provided they add to the tray rather than rebuild it.
+    """
+
+    def test_a_repeated_scan_does_not_duplicate_an_item(self, no_polling) -> None:
+        widget = make_tray()
+        widget._build_items([KEYBOARD])
+        widget._build_items([KEYBOARD])
+        assert len(widget._items) == 1
+        widget._stop()
+
+    def test_start_schedules_a_rescan_for_every_documented_delay(
+        self, monkeypatch, no_polling
+    ) -> None:
+        """Without these the first scan is the only one, and a sleeping device
+        never appears at all."""
+        scheduled: list[int] = []
+        monkeypatch.setattr(
+            tray.Tray, "_schedule_rescan", lambda self, ms: scheduled.append(ms)
+        )
+        monkeypatch.setattr(tray.Tray, "_run_scan", lambda self: None)
+
+        widget = make_tray()
+        widget.start()
+        assert scheduled == list(tray.RESCAN_DELAYS_MS)
+        widget._stop()
+
+    def test_a_later_find_hides_the_placeholder(self, no_polling) -> None:
+        """Booting with everything asleep leaves a placeholder; it must not sit
+        there next to the real items once they turn up.
+
+        Hidden rather than destroyed: Plasma drops a re-created tray item for
+        good, and hiding is the one reversible way out.
+        """
+        widget = make_tray()
+        widget._build_items([])
+        assert widget._placeholder is not None
+        assert widget._placeholder._icon.isVisible()
+
+        widget._build_items([MOUSE])
+        assert len(widget._items) == 1
+        assert not widget._placeholder._icon.isVisible()
+        widget._stop()
+
+    def test_a_scheduled_rescan_really_fires_and_adds_the_device(
+        self, monkeypatch, no_polling
+    ) -> None:
+        """End to end through a live event loop: nothing at startup, the device
+        awake by the retry, an item for it without a restart.
+
+        The unit tests above cover the schedule and the additive build
+        separately; this is the one that proves the timer actually runs them.
+        """
+        from PyQt6.QtCore import QEventLoop, QTimer
+
+        scans = {"n": 0}
+
+        def find_devices():
+            scans["n"] += 1
+            return [] if scans["n"] == 1 else [MOUSE]
+
+        monkeypatch.setattr(tray.discovery, "find_devices", find_devices)
+        monkeypatch.setattr(tray, "RESCAN_DELAYS_MS", (50,))
+
+        widget = make_tray()
+        widget.start()
+
+        loop = QEventLoop()
+        QTimer.singleShot(1500, loop.quit)
+        loop.exec()
+
+        assert scans["n"] >= 2, "the scheduled rescan never ran"
+        assert [item._device.name for item in widget._items] == ["MX Master 3S"]
+        assert widget._placeholder is not None
+        assert not widget._placeholder._icon.isVisible()
+        widget._stop()
