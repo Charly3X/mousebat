@@ -283,8 +283,9 @@ class PlaceholderItem:
     """A tray item shown when no device was found.
 
     Without it the applet would have no icon at all, and the context menu — the only
-    way to quit or to toggle autostart — lives on the icon. It polls nothing: picking
-    up a device that appears later takes a restart.
+    way to quit or to toggle autostart — lives on the icon. It polls nothing; the
+    scheduled rescans are what pick up a device that was merely asleep, and this
+    item is hidden once they find one.
     """
 
     def __init__(self, app: QApplication, autostart: Autostart) -> None:
@@ -303,7 +304,7 @@ class PlaceholderItem:
 
 
 class Scanner(QObject):
-    """Runs the one blocking discovery pass, off the GUI thread."""
+    """Runs one blocking discovery pass, off the GUI thread."""
 
     found = pyqtSignal(object)  # list[discovery.HidppDevice]
 
@@ -317,10 +318,12 @@ class Scanner(QObject):
 
 
 class Tray(QObject):
-    """Discovers devices once at startup, then owns one item per device.
+    """Discovers devices and owns one tray item per device.
 
-    The device set is fixed from then on: items are only ever added, never removed,
-    because Plasma drops a re-created tray item permanently.
+    Scanning runs at startup and again at each of RESCAN_DELAYS_MS, because a device
+    asleep when the session came up answers nothing and would otherwise never get an
+    item. Scans are additive and items are only ever added, never removed, because
+    Plasma drops a re-created tray item permanently.
     """
 
     def __init__(self, app: QApplication, autostart: Autostart | None = None) -> None:
@@ -368,7 +371,12 @@ class Tray(QObject):
             self._items.append(item)
 
         if not self._items:
-            self._placeholder = PlaceholderItem(self._app, self._autostart)
+            # Only ever built once. A rescan that again finds nothing must not
+            # replace it: dropping the old item and creating a new one is the very
+            # operation Plasma punishes by removing it from the tray for good, and
+            # with it the only way left to quit.
+            if self._placeholder is None:
+                self._placeholder = PlaceholderItem(self._app, self._autostart)
         elif self._placeholder is not None:
             # Devices turned up after all. The placeholder is hidden rather than
             # destroyed: Plasma drops a re-created tray item for good, so hiding

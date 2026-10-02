@@ -22,7 +22,8 @@ reconnection design (Task 7, and the spec's Reconnection section).
 - Run tests with `./.venv/bin/python -m pytest`. Never `python3 -m pytest` — PyQt6 resolution differs.
 - HID++ reads only. Nothing is ever written to a device.
 - The project name `mousebat` does not change: not the module, the systemd unit, the udev rule, nor `pyproject.toml`.
-- No low-battery notifications. No automatic rescanning. The device set is fixed at startup.
+- No low-battery notifications. The device set was fixed at startup as planned here;
+  a later change added retry scans in the first minutes (see the spec).
 - Tray items are never removed once created — Plasma drops a re-created item permanently.
 - `icon.py` must not import `discovery`, and must not learn HID++ device-type codes. It takes its own `Shape` enum; the device-type-to-shape mapping lives in `tray.py`.
 - Python style follows the existing modules: `from __future__ import annotations`, keyword-only flags, docstrings that explain *why*, lines under 100 characters.

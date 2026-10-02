@@ -67,11 +67,15 @@ class TestDeviceItem:
         assert item._icon.toolTip().startswith("MX Master 3S\nno connection")
 
     def test_unknown_percent_is_shown_as_a_dash(self) -> None:
+        """Asserted on the whole tooltip, not on the dash appearing somewhere in
+        it: an em dash already separates the two halves, so a substring check
+        holds no matter what the percentage renders as.
+        """
         item = make_item(MOUSE)
         item._apply(
             tray.Sample(name="MX Master 3S", reading=reading(None, battery.ChargeStatus.DISCHARGING))
         )
-        assert "—" in item._icon.toolTip()
+        assert item._icon.toolTip() == "MX Master 3S\n— — discharging"
 
     def test_offline_polls_more_often(self) -> None:
         item = make_item(MOUSE)
@@ -356,4 +360,16 @@ class TestRescan:
         assert [item._device.name for item in widget._items] == ["MX Master 3S"]
         assert widget._placeholder is not None
         assert not widget._placeholder._icon.isVisible()
+        widget._stop()
+
+    def test_repeated_empty_scans_keep_the_same_placeholder(self, no_polling) -> None:
+        """Re-creating a tray item is the one thing Plasma drops for good, and an
+        empty rescan is the likeliest moment to do it by accident — it is exactly
+        the case the retries exist for.
+        """
+        widget = make_tray()
+        widget._build_items([])
+        first = widget._placeholder
+        widget._build_items([])
+        assert widget._placeholder is first
         widget._stop()

@@ -185,7 +185,7 @@ Split into two classes.
 that is already known — same intervals (5 minutes online, 1 minute after a lost link),
 same online/offline rendering.
 
-**`Tray`** becomes a coordinator. At startup it runs discovery once on a short-lived
+**`Tray`** becomes a coordinator. It runs discovery on a short-lived
 worker thread of its own — the scan blocks for seconds and must not touch the GUI thread
 — and on the result creates one `DeviceItem` per device found. When nothing is found it
 creates a single placeholder item, titled `mousebat` and rendered offline, because the
@@ -302,9 +302,17 @@ report's 16 parameter bytes.
 - **A device paired more than five minutes after start** appears only after a restart.
   The retries cover a device that exists but was asleep, not one that did not exist.
 - **Distinguishing items** rests on the two shapes. Two devices of the same type get
-  the same shape and are told apart by tooltip alone.
+  the same shape. Worse, two devices that also share a name and a `device_index` —
+  a pair of identical mice on two receivers — collapse into a single item, because
+  that is the whole of our identity. Telling them apart needs a unit id from feature
+  `0x0003`, which we do not read.
 - **Concurrent HID++ walks** are serialised by a lock inside `find_devices`, which is
-  enough for the tray but is a process-wide lock, not a device-wide one: a second
+  narrower than it looks. It serialises walk against walk, but a poller resolving a
+  feature index holds no lock at all, and that request is indistinguishable from a
+  walker's: same node, same index, same `software_id`. A poller that resolves while a
+  walk is running can take the walker's reply as its own and cache a wrong feature
+  index until the link next drops. It is also a process-wide lock, not a device-wide
+  one: a second
   program walking the same receiver would still cross replies with us. The real fix
   would be a per-thread `software_id`, which the transport does not offer.
 

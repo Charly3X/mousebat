@@ -37,7 +37,9 @@ untouched. It coexists with a running `logid`, telling its own replies apart by
   `MX Master 3S` and `MX Keys Wireless Keyboard` rather than `mousebat`.
 
 Polling runs every 5 minutes per device, or every minute while a link is down. Each
-device polls on its own thread, so one asleep does not hold up the other.
+device polls on its own thread, so one asleep does not hold up the other's reading.
+(A device that stays asleep does still make its own retries walk the receivers, which
+briefly blocks the other's reconnect.)
 
 No device is hard-coded: every keyboard, mouse and trackball found on any Logitech
 receiver gets its own tray item. The search runs at startup and again 30 seconds, 2
@@ -113,7 +115,7 @@ write somewhere else.
 ## Tests
 
 ```sh
-python3 -m pytest
+./.venv/bin/python -m pytest
 ```
 
 No hardware required: the transport is replaced by recorded bytes and `/sys` by a
@@ -138,8 +140,8 @@ other, though — two at once ask the same indices the same questions with the s
 
 Qt freezes a tray item's title when the item is created, and re-creating the item makes
 it disappear from the tray for good — both verified against Plasma. So discovery runs
-first and names every device before a single icon exists. That is also why the device
-set is fixed at startup: a newly paired device needs
+first and names every device before an icon for it exists. A device found by a later
+rescan gets its item the same way, named before it is shown. A newly paired device needs
 `systemctl --user restart mousebat.service` to get an item of its own.
 
 Design notes:
